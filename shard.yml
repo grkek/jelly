@@ -1,0 +1,13 @@
+name: jelly
+version: 0.1.0
+
+authors:
+  - Giorgi Kavrelishvili <giorgi.kavrelishvili@pm.me>
+
+targets:
+  jelly:
+    main: src/jelly.cr
+
+crystal: '>= 1.15.1'
+
+license: MIT
