@@ -270,39 +270,12 @@ def make_call(action : String, key : String, value : Jelly::VirtualMachine::Valu
 end
 
 spawn do
-  sleep 0.5.seconds
-
-  puts "\n>>> KV.Bucket.put(bucket, \"milk\", 3)"
   bucket.mailbox.push(make_call("put", "milk", Jelly::VirtualMachine::Value.new(3_i64), 1_i64))
-
-  sleep 0.5.seconds
-
-  puts "\n>>> KV.Bucket.put(bucket, \"eggs\", 12)"
   bucket.mailbox.push(make_call("put", "eggs", Jelly::VirtualMachine::Value.new(12_i64), 2_i64))
-
-  sleep 0.5.seconds
-
-  puts "\n>>> KV.Bucket.get(bucket, \"milk\")"
   bucket.mailbox.push(make_call("get", "milk", nil, 3_i64))
-
-  sleep 0.5.seconds
-
-  puts "\n>>> KV.Bucket.get(bucket, \"eggs\")"
   bucket.mailbox.push(make_call("get", "eggs", nil, 4_i64))
-
-  sleep 0.5.seconds
-
-  puts "\n>>> KV.Bucket.delete(bucket, \"milk\")"
   bucket.mailbox.push(make_call("delete", "milk", nil, 5_i64))
-
-  sleep 0.5.seconds
-
-  puts "\n>>> KV.Bucket.get(bucket, \"milk\")"
   bucket.mailbox.push(make_call("get", "milk", nil, 6_i64))
-
-  sleep 0.5.seconds
-
-  puts "\n>>> KV.Bucket.get(bucket, \"eggs\")"
   bucket.mailbox.push(make_call("get", "eggs", nil, 7_i64))
 end
 
