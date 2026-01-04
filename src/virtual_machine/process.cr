@@ -7,6 +7,10 @@ module Jelly
         WAITING # New state for processes explicitly waiting for messages
         BLOCKED # New state for processes blocked on full mailboxes
         DEAD
+
+        def waiting? : Bool
+          self == WAITING || self == BLOCKED
+        end
       end
 
       property address : UInt64
@@ -16,6 +20,7 @@ module Jelly
       property mailbox : Mailbox
       property call_stack : Array(UInt64)
       property frame_pointer : Int32
+      property locals : Array(Value)
       property waiting_for : Value?                          # Pattern to wait for
       property waiting_since : Time?                         # When the process started waiting
       property waiting_timeout : Time::Span?                 # How long to wait
@@ -24,10 +29,15 @@ module Jelly
       property registered_name : String?                     # For process registry
       property dependencies : Set(UInt64)                    # Process dependencies for deadlock detection
 
-      def initialize(@address : UInt64)
+      property instructions : Array(Instruction)
+      property subroutines : Hash(String, Subroutine) = {} of String => Subroutine
+      property globals : Hash(String, Value) = {} of String => Value
+
+      def initialize(@address : UInt64, @instructions : Array(Instruction))
         @state = State::ALIVE
         @counter = 0_u64
         @stack = [] of Value
+        @locals = [] of Value
         @mailbox = Mailbox.new(100) # Default capacity
         @call_stack = [] of UInt64
         @frame_pointer = 0

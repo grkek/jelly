@@ -5,25 +5,35 @@ module Jelly
     class Message
       property sender : UInt64
       property value : Value
-      property id : UInt64      # Unique message ID for tracking
-      property needs_ack : Bool # Whether message requires acknowledgment
-      property timestamp : Time # When the message was sent
-      property ttl : Time::Span # Time to live
+      property id : UInt64
+      property needs_ack : Bool
+      property timestamp : Time
+      property ttl : Time::Span?
 
-      @@next_id : UInt64 = 1
+      @@next_id : UInt64 = 1_u64
       @@id_mutex = Mutex.new
 
-      def initialize(@sender : UInt64, @value : Value, @needs_ack = false, @ttl = 30.seconds)
+      def initialize(
+        @sender : UInt64,
+        @value : Value,
+        @needs_ack : Bool = false,
+        @ttl : Time::Span? = nil
+      )
         @id = @@id_mutex.synchronize do
-          id = @@next_id
+          current = @@next_id
           @@next_id += 1
-          id
+          current
         end
         @timestamp = Time.utc
       end
 
+      # Returns true if the message has a TTL and has expired
       def expired? : Bool
-        Time.utc - @timestamp > @ttl
+        if ttl = @ttl
+          Time.utc > @timestamp + ttl
+        else
+          false # No TTL → never expires
+        end
       end
     end
   end

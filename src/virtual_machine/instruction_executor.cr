@@ -14,25 +14,57 @@ module Jelly
 
         begin
           case instruction.code
-          when Code::PUSH_INTEGER     then execute_push_integer(process, instruction)
-          when Code::PUSH_FLOAT       then execute_push_float(process, instruction)
-          when Code::PUSH_STRING      then execute_push_string(process, instruction)
-          when Code::PUSH_BOOLEAN     then execute_push_boolean(process, instruction)
-          when Code::PUSH_NULL        then execute_push_null(process)
-          when Code::POP              then execute_pop(process)
-          when Code::DUPLICATE        then execute_duplicate(process)
-          when Code::SWAP             then execute_swap(process)
-          when Code::CONCATENATE      then execute_concatenate(process)
-          when Code::ADD              then execute_add(process)
-          when Code::LESS_THAN        then execute_less_than(process)
-          when Code::EQUAL            then execute_equal(process)
-          when Code::SUBTRACT         then execute_subtract(process)
-          when Code::JUMP_IF          then execute_jump_if(process, instruction)
-          when Code::JUMP             then execute_jump(process, instruction)
-          when Code::PRINT            then execute_print(process)
-          when Code::CALL             then execute_call(process, instruction)
-          when Code::RETURN           then execute_return(process)
+          # Stack manipulation
+          when Code::POP       then execute_pop(process)
+          when Code::DUPLICATE then execute_duplicate(process)
+          when Code::SWAP      then execute_swap(process)
+          when Code::ROT       then execute_rot(process)
+          when Code::OVER      then execute_over(process)
+          when Code::DROP      then execute_pop(process)
+            # Push instructions
+          when Code::PUSH_INTEGER          then execute_push_integer(process, instruction)
+          when Code::PUSH_UNSIGNED_INTEGER then execute_push_unsigned_integer(process, instruction)
+          when Code::PUSH_FLOAT            then execute_push_float(process, instruction)
+          when Code::PUSH_STRING           then execute_push_string(process, instruction)
+          when Code::PUSH_BOOLEAN          then execute_push_boolean(process, instruction)
+          when Code::PUSH_NULL             then execute_push_null(process)
+            # Arithmetic
+          when Code::ADD      then execute_add(process)
+          when Code::SUBTRACT then execute_subtract(process)
+          when Code::MULTIPLY then execute_multiply(process)
+          when Code::DIVIDE   then execute_divide(process)
+          when Code::MODULO   then execute_modulo(process)
+          when Code::NEGATE   then execute_negate(process)
+            # String operations
+          when Code::CONCATENATE   then execute_concatenate(process)
+          when Code::STRING_LENGTH then execute_string_length(process)
+          when Code::SUBSTRING     then execute_substring(process)
+            # Comparisons
+          when Code::LESS_THAN             then execute_less_than(process)
+          when Code::GREATER_THAN          then execute_greater_than(process)
+          when Code::LESS_THAN_OR_EQUAL    then execute_less_than_or_equal(process)
+          when Code::GREATER_THAN_OR_EQUAL then execute_greater_than_or_equal(process)
+          when Code::EQUAL                 then execute_equal(process)
+          when Code::NOT_EQUAL             then execute_not_equal(process)
+            # Logical
+          when Code::AND then execute_and(process)
+          when Code::OR  then execute_or(process)
+          when Code::NOT then execute_not(process)
+            # Variables
+          when Code::LOAD_LOCAL   then execute_load_local(process, instruction)
+          when Code::STORE_LOCAL  then execute_store_local(process, instruction)
+          when Code::LOAD_GLOBAL  then execute_load_global(process, instruction)
+          when Code::STORE_GLOBAL then execute_store_global(process, instruction)
+            # Flow control
+          when Code::CALL        then execute_call(process, instruction)
+          when Code::RETURN      then execute_return(process)
+          when Code::JUMP        then execute_jump(process, instruction)
+          when Code::JUMP_IF     then execute_jump_if(process, instruction)
+          when Code::JUMP_UNLESS then execute_jump_unless(process, instruction)
+          when Code::HALT        then execute_halt(process)
+            # Concurrency
           when Code::SPAWN            then execute_spawn(process)
+          when Code::SELF             then execute_self(process)
           when Code::SEND             then execute_send(process, instruction)
           when Code::RECEIVE          then execute_receive(process)
           when Code::RECEIVE_SELECT   then execute_receive_select(process, instruction)
@@ -41,6 +73,27 @@ module Jelly
           when Code::REGISTER_PROCESS then execute_register_process(process, instruction)
           when Code::WHEREIS_PROCESS  then execute_whereis_process(process, instruction)
           when Code::PEEK_MAILBOX     then execute_peek_mailbox(process)
+          when Code::KILL             then execute_kill(process)
+          when Code::SLEEP            then execute_sleep(process)
+            # Map operations
+          when Code::MAP_NEW    then execute_map_new(process)
+          when Code::MAP_GET    then execute_map_get(process)
+          when Code::MAP_SET    then execute_map_set(process)
+          when Code::MAP_DELETE then execute_map_delete(process)
+          when Code::MAP_KEYS   then execute_map_keys(process)
+          when Code::MAP_SIZE   then execute_map_size(process)
+            # Array operations
+          when Code::ARRAY_NEW    then execute_array_new(process, instruction)
+          when Code::ARRAY_GET    then execute_array_get(process)
+          when Code::ARRAY_SET    then execute_array_set(process)
+          when Code::ARRAY_PUSH   then execute_array_push(process)
+          when Code::ARRAY_POP    then execute_array_pop(process)
+          when Code::ARRAY_LENGTH then execute_array_length(process)
+            # I/O
+          when Code::PRINT_LINE then execute_print_line(process)
+          when Code::READ_LINE  then execute_read_line(process)
+            # Error handling
+          when Code::THROW then execute_throw(process)
           else
             if handler = @engine.custom_handlers[instruction.code]?
               handler.call(process, instruction)
@@ -48,7 +101,7 @@ module Jelly
               raise InvalidInstructionException.new("Unknown instruction: #{instruction.code}")
             end
           end
-        rescue ex : VMException
+        rescue ex : EmulationException
           Log.error { "Process <#{process.address}>: #{ex.message}" }
           process.state = Process::State::DEAD
           Value.new(ex)
@@ -63,10 +116,22 @@ module Jelly
       private def execute_push_integer(process : Process, instruction : Instruction) : Value
         process.counter += 1
         unless instruction.value.is_integer?
-          raise TypeMismatchException.new("PUSH_INTEGER requires an Integer value")
+          raise TypeMismatchException.new("PUSH_INTEGER requires an integer value")
         end
         check_stack_capacity(process)
-        value = Value.new(instruction.value.to_i)
+        value = Value.new(instruction.value.to_i64)
+        process.stack.push(value)
+        value
+      end
+
+      # Push an integer value onto the stack
+      private def execute_push_unsigned_integer(process : Process, instruction : Instruction) : Value
+        process.counter += 1
+        unless instruction.value.is_unsigned_integer?
+          raise TypeMismatchException.new("PUSH_UNSIGNED_INTEGER requires an unsigned integer value")
+        end
+        check_stack_capacity(process)
+        value = Value.new(instruction.value.to_u64)
         process.stack.push(value)
         value
       end
@@ -75,10 +140,10 @@ module Jelly
       private def execute_push_float(process : Process, instruction : Instruction) : Value
         process.counter += 1
         unless instruction.value.is_float?
-          raise TypeMismatchException.new("PUSH_FLOAT requires a Float value")
+          raise TypeMismatchException.new("PUSH_FLOAT requires a float value")
         end
         check_stack_capacity(process)
-        value = Value.new(instruction.value.to_f)
+        value = Value.new(instruction.value.to_f64)
         process.stack.push(value)
         value
       end
@@ -87,7 +152,7 @@ module Jelly
       private def execute_push_string(process : Process, instruction : Instruction) : Value
         process.counter += 1
         unless instruction.value.is_string?
-          raise TypeMismatchException.new("PUSH_STRING requires a String value")
+          raise TypeMismatchException.new("PUSH_STRING requires a string value")
         end
         check_stack_capacity(process)
         value = Value.new(instruction.value.to_s)
@@ -99,7 +164,7 @@ module Jelly
       private def execute_push_boolean(process : Process, instruction : Instruction) : Value
         process.counter += 1
         unless instruction.value.is_boolean?
-          raise TypeMismatchException.new("PUSH_BOOLEAN requires a Boolean value")
+          raise TypeMismatchException.new("PUSH_BOOLEAN requires a boolean value")
         end
         check_stack_capacity(process)
         value = Value.new(instruction.value.to_b)
@@ -144,6 +209,148 @@ module Jelly
         Value.new
       end
 
+      # Rotate top three values: [a, b, c] → [b, c, a]
+      private def execute_rot(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 3, "ROT")
+        c = process.stack.pop
+        b = process.stack.pop
+        a = process.stack.pop
+        process.stack.push(b)
+        process.stack.push(c)
+        process.stack.push(a)
+        Value.new
+      end
+
+      # Copy second value to top: [a, b] → [a, b, a]
+      private def execute_over(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "OVER")
+        check_stack_capacity(process)
+        value = process.stack[process.stack.size - 2].clone
+        process.stack.push(value)
+        value
+      end
+
+      # Add the top two numeric values on the stack
+      private def execute_add(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "ADD")
+        b = process.stack.pop
+        a = process.stack.pop
+        unless a.is_numeric? && b.is_numeric?
+          raise TypeMismatchException.new("ADD requires two numeric values")
+        end
+        check_stack_capacity(process)
+        if a.is_float? || b.is_float?
+          result = Value.new(a.to_f64 + b.to_f64)
+        else
+          result = Value.new(a.to_i64 + b.to_i64)
+        end
+        process.stack.push(result)
+        result
+      end
+
+      # Subtract the top value from the second value
+      private def execute_subtract(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "SUBTRACT")
+        b = process.stack.pop
+        a = process.stack.pop
+        unless a.is_numeric? && b.is_numeric?
+          raise TypeMismatchException.new("SUBTRACT requires two numeric values")
+        end
+        check_stack_capacity(process)
+        if a.is_float? || b.is_float?
+          result = Value.new(a.to_f64 - b.to_f64)
+        else
+          result = Value.new(a.to_i64 - b.to_i64)
+        end
+        process.stack.push(result)
+        result
+      end
+
+      # Multiply the top two numeric values
+      private def execute_multiply(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "MULTIPLY")
+        b = process.stack.pop
+        a = process.stack.pop
+        unless a.is_numeric? && b.is_numeric?
+          raise TypeMismatchException.new("MULTIPLY requires two numeric values")
+        end
+        check_stack_capacity(process)
+        if a.is_float? || b.is_float?
+          result = Value.new(a.to_f64 * b.to_f64)
+        else
+          result = Value.new(a.to_i64 * b.to_i64)
+        end
+        process.stack.push(result)
+        result
+      end
+
+      # Divide the second value by the top value
+      private def execute_divide(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "DIVIDE")
+        b = process.stack.pop
+        a = process.stack.pop
+        unless a.is_numeric? && b.is_numeric?
+          raise TypeMismatchException.new("DIVIDE requires two numeric values")
+        end
+        if b.to_f64 == 0.0
+          raise EmulationException.new("Division by zero")
+        end
+        check_stack_capacity(process)
+        if a.is_float? || b.is_float?
+          result = Value.new(a.to_f64 / b.to_f64)
+        else
+          result = Value.new(a.to_i64 // b.to_i64)
+        end
+        process.stack.push(result)
+        result
+      end
+
+      # Modulo of second value by top value
+      private def execute_modulo(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "MODULO")
+        b = process.stack.pop
+        a = process.stack.pop
+        unless a.is_numeric? && b.is_numeric?
+          raise TypeMismatchException.new("MODULO requires two numeric values")
+        end
+        if b.to_f64 == 0.0
+          raise EmulationException.new("Modulo by zero")
+        end
+        check_stack_capacity(process)
+        if a.is_float? || b.is_float?
+          result = Value.new(a.to_f64 % b.to_f64)
+        else
+          result = Value.new(a.to_i64 % b.to_i64)
+        end
+        process.stack.push(result)
+        result
+      end
+
+      # Negate the top numeric value (unary minus)
+      private def execute_negate(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "NEGATE")
+        a = process.stack.pop
+        unless a.is_numeric?
+          raise TypeMismatchException.new("NEGATE requires a numeric value")
+        end
+        check_stack_capacity(process)
+        if a.is_float?
+          result = Value.new(-a.to_f64)
+        else
+          result = Value.new(-a.to_i64)
+        end
+        process.stack.push(result)
+        result
+      end
+
       # Concatenate the top two string values on the stack
       private def execute_concatenate(process : Process) : Value
         process.counter += 1
@@ -159,21 +366,41 @@ module Jelly
         result
       end
 
-      # Add the top two numeric values on the stack
-      private def execute_add(process : Process) : Value
+      # Get length of string
+      private def execute_string_length(process : Process) : Value
         process.counter += 1
-        check_stack_size(process, 2, "ADD")
-        b = process.stack.pop
-        a = process.stack.pop
-        unless a.is_numeric? && b.is_numeric?
-          raise TypeMismatchException.new("ADD requires two numeric values")
+        check_stack_size(process, 1, "STRING_LENGTH")
+        str = process.stack.pop
+        unless str.is_string?
+          raise TypeMismatchException.new("STRING_LENGTH requires a String value")
         end
         check_stack_capacity(process)
-        if a.is_float? || b.is_float?
-          result = Value.new(a.to_f + b.to_f)
-        else
-          result = Value.new(a.to_i + b.to_i)
+        result = Value.new(str.to_s.size.to_u64)
+        process.stack.push(result)
+        result
+      end
+
+      # Extract substring: [str, start, length] → [substring]
+      private def execute_substring(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 3, "SUBSTRING")
+        length = process.stack.pop
+        start = process.stack.pop
+        str = process.stack.pop
+        unless str.is_string?
+          raise TypeMismatchException.new("SUBSTRING requires a String value")
         end
+        unless start.is_integer? && length.is_integer?
+          raise TypeMismatchException.new("SUBSTRING requires Integer start and length")
+        end
+        check_stack_capacity(process)
+        s = str.to_s
+        start_idx = start.to_i64
+        len = length.to_i64
+        if start_idx < 0 || start_idx > s.size
+          raise EmulationException.new("SUBSTRING start index out of bounds")
+        end
+        result = Value.new(s[start_idx, len]? || "")
         process.stack.push(result)
         result
       end
@@ -188,7 +415,52 @@ module Jelly
           raise TypeMismatchException.new("LESS_THAN requires two numeric values")
         end
         check_stack_capacity(process)
-        result = Value.new(a.to_f < b.to_f)
+        result = Value.new(a.to_f64 < b.to_f64)
+        process.stack.push(result)
+        result
+      end
+
+      # Compare if the second value is greater than the top value
+      private def execute_greater_than(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "GREATER_THAN")
+        b = process.stack.pop
+        a = process.stack.pop
+        unless a.is_numeric? && b.is_numeric?
+          raise TypeMismatchException.new("GREATER_THAN requires two numeric values")
+        end
+        check_stack_capacity(process)
+        result = Value.new(a.to_f64 > b.to_f64)
+        process.stack.push(result)
+        result
+      end
+
+      # Compare if the second value is less than or equal to the top value
+      private def execute_less_than_or_equal(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "LESS_THAN_OR_EQUAL")
+        b = process.stack.pop
+        a = process.stack.pop
+        unless a.is_numeric? && b.is_numeric?
+          raise TypeMismatchException.new("LESS_THAN_OR_EQUAL requires two numeric values")
+        end
+        check_stack_capacity(process)
+        result = Value.new(a.to_f64 <= b.to_f64)
+        process.stack.push(result)
+        result
+      end
+
+      # Compare if the second value is greater than or equal to the top value
+      private def execute_greater_than_or_equal(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "GREATER_THAN_OR_EQUAL")
+        b = process.stack.pop
+        a = process.stack.pop
+        unless a.is_numeric? && b.is_numeric?
+          raise TypeMismatchException.new("GREATER_THAN_OR_EQUAL requires two numeric values")
+        end
+        check_stack_capacity(process)
+        result = Value.new(a.to_f64 >= b.to_f64)
         process.stack.push(result)
         result
       end
@@ -205,23 +477,114 @@ module Jelly
         result
       end
 
-      # Subtract the top value from the second value
-      private def execute_subtract(process : Process) : Value
+      # Check if the top two values are not equal
+      private def execute_not_equal(process : Process) : Value
         process.counter += 1
-        check_stack_size(process, 2, "SUBTRACT")
+        check_stack_size(process, 2, "NOT_EQUAL")
         b = process.stack.pop
         a = process.stack.pop
-        unless a.is_numeric? && b.is_numeric?
-          raise TypeMismatchException.new("SUBTRACT requires two numeric values")
-        end
         check_stack_capacity(process)
-        if a.is_float? || b.is_float?
-          result = Value.new(a.to_f - b.to_f)
-        else
-          result = Value.new(a.to_i - b.to_i)
-        end
+        result = Value.new(a != b)
         process.stack.push(result)
         result
+      end
+
+      # Logical AND of top two values
+      private def execute_and(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "AND")
+        b = process.stack.pop
+        a = process.stack.pop
+        check_stack_capacity(process)
+        result = Value.new(a.to_b && b.to_b)
+        process.stack.push(result)
+        result
+      end
+
+      # Logical OR of top two values
+      private def execute_or(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "OR")
+        b = process.stack.pop
+        a = process.stack.pop
+        check_stack_capacity(process)
+        result = Value.new(a.to_b || b.to_b)
+        process.stack.push(result)
+        result
+      end
+
+      # Logical NOT of top value
+      private def execute_not(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "NOT")
+        a = process.stack.pop
+        check_stack_capacity(process)
+        result = Value.new(!a.to_b)
+        process.stack.push(result)
+        result
+      end
+
+      # Load local variable onto stack
+      private def execute_load_local(process : Process, instruction : Instruction) : Value
+        process.counter += 1
+        unless instruction.value.is_unsigned_integer?
+          raise TypeMismatchException.new("LOAD_LOCAL requires an Integer index")
+        end
+        index = instruction.value.to_i64
+        if index < 0 || index >= process.locals.size
+          raise EmulationException.new("LOAD_LOCAL invalid index: #{index}")
+        end
+        check_stack_capacity(process)
+        value = process.locals[index].clone
+        process.stack.push(value)
+        value
+      end
+
+      # Store top of stack into local variable
+      private def execute_store_local(process : Process, instruction : Instruction) : Value
+        process.counter += 1
+        unless instruction.value.is_unsigned_integer?
+          raise TypeMismatchException.new("STORE_LOCAL requires an Integer index")
+        end
+        check_stack_size(process, 1, "STORE_LOCAL")
+        index = instruction.value.to_i64
+        value = process.stack.pop
+
+        while process.locals.size <= index
+          process.locals.push(Value.new)
+        end
+
+        process.locals[index] = value
+        value
+      end
+
+      # Load global variable onto stack
+      private def execute_load_global(process : Process, instruction : Instruction) : Value
+        process.counter += 1
+        unless instruction.value.is_string?
+          raise TypeMismatchException.new("LOAD_GLOBAL requires a String name")
+        end
+        name = instruction.value.to_s
+        value = process.globals[name]?
+        unless value
+          raise EmulationException.new("LOAD_GLOBAL undefined variable: #{name}")
+        end
+        check_stack_capacity(process)
+        process.stack.push(value.clone)
+        value
+      end
+
+      # Store top of stack into global variable
+      private def execute_store_global(process : Process, instruction : Instruction) : Value
+        process.counter += 1
+        unless instruction.value.is_string?
+          raise TypeMismatchException.new("STORE_GLOBAL requires a String name")
+        end
+        check_stack_size(process, 1, "STORE_GLOBAL")
+        name = instruction.value.to_s
+        value = process.stack.pop
+        process.globals[name] = value
+        value
       end
 
       # Jump if the top stack value is true
@@ -232,11 +595,30 @@ module Jelly
         unless instruction.value.is_integer?
           raise TypeMismatchException.new("JUMP_IF requires an Integer offset")
         end
-        offset = instruction.value.to_i
+        offset = instruction.value.to_i64
         if condition.to_b
-          new_counter = process.counter + offset
-          if new_counter < 0 || new_counter >= @engine.instructions.size
-            raise VMException.new("JUMP_IF to invalid address: #{new_counter}")
+          new_counter = process.counter.to_i64 + offset
+          if new_counter < 0 || new_counter >= process.instructions.size
+            raise EmulationException.new("JUMP_IF to invalid address: #{new_counter}")
+          end
+          process.counter = new_counter.to_u64
+        end
+        Value.new
+      end
+
+      # Jump if the top stack value is false
+      private def execute_jump_unless(process : Process, instruction : Instruction) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "JUMP_UNLESS")
+        condition = process.stack.pop
+        unless instruction.value.is_integer?
+          raise TypeMismatchException.new("JUMP_UNLESS requires an Integer offset")
+        end
+        offset = instruction.value.to_i64
+        unless condition.to_b
+          new_counter = process.counter.to_i64 + offset
+          if new_counter < 0 || new_counter >= process.instructions.size
+            raise EmulationException.new("JUMP_UNLESS to invalid address: #{new_counter}")
           end
           process.counter = new_counter.to_u64
         end
@@ -247,25 +629,38 @@ module Jelly
       private def execute_jump(process : Process, instruction : Instruction) : Value
         process.counter += 1
         unless instruction.value.is_integer?
-          raise TypeMismatchException.new("JUMP requires an Integer address")
+          raise TypeMismatchException.new("JUMP requires an Integer offset")
         end
-        address = instruction.value.to_i
-        if address < 0 || address >= @engine.instructions.size
-          raise VMException.new("JUMP to invalid address: #{address}")
+        offset = instruction.value.to_i64
+
+        # Allow negative offsets for relative backward jumps
+        new_counter = process.counter.to_i64 + offset
+
+        if new_counter < 0 || new_counter >= process.instructions.size
+          raise EmulationException.new("JUMP to invalid address: #{new_counter} (offset #{offset})")
         end
-        process.counter = address.to_u64
+
+        process.counter = new_counter.to_u64
         Value.new
       end
 
       # Print the top value on the stack
-      private def execute_print(process : Process) : Value
+      private def execute_print_line(process : Process) : Value
         process.counter += 1
-        check_stack_size(process, 1, "PRINT")
+        check_stack_size(process, 1, "PRINT_LINE")
         value = process.stack.pop
-
         puts value.to_s
-
         Value.new(nil)
+      end
+
+      # Read a line from stdin
+      private def execute_read_line(process : Process) : Value
+        process.counter += 1
+        check_stack_capacity(process)
+        line = gets || ""
+        result = Value.new(line.chomp)
+        process.stack.push(result)
+        result
       end
 
       # Call a subroutine
@@ -275,9 +670,9 @@ module Jelly
           raise TypeMismatchException.new("CALL requires a String subroutine name")
         end
         subroutine_name = instruction.value.to_s
-        subroutine = @engine.subroutines[subroutine_name]?
+        subroutine = process.subroutines[subroutine_name]?
         unless subroutine
-          raise VMException.new("Subroutine not found: #{subroutine_name}")
+          raise EmulationException.new("Subroutine not found: #{subroutine_name}")
         end
         check_stack_capacity(process)
         process.call_stack.push(process.counter)
@@ -292,7 +687,7 @@ module Jelly
         return_value = if process.stack.empty?
                          Value.new
                        else
-                         process.stack.last
+                         process.stack.pop
                        end
         unless process.call_stack.empty?
           return_address = process.call_stack.pop
@@ -306,13 +701,31 @@ module Jelly
         return_value
       end
 
+      # Halt process execution
+      private def execute_halt(process : Process) : Value
+        process.counter += 1
+        process.state = Process::State::DEAD
+        Log.debug { "Process <#{process.address}> halted" }
+        Value.new
+      end
+
       # Spawn a new process
       private def execute_spawn(process : Process) : Value
         process.counter += 1
-        new_process = @engine.process_manager.create_process
+        new_process = @engine.process_manager.create_process(instructions: process.instructions)
+        @engine.processes << new_process
         check_stack_capacity(process)
-        process.stack.push(Value.new(new_process.address.to_i))
-        Value.new(new_process.address.to_i)
+        process.stack.push(Value.new(new_process.address.to_i64))
+        Value.new(new_process.address.to_i64)
+      end
+
+      # Push own process address onto stack
+      private def execute_self(process : Process) : Value
+        process.counter += 1
+        check_stack_capacity(process)
+        value = Value.new(process.address.to_i64)
+        process.stack.push(value)
+        value
       end
 
       # Send a message to another process
@@ -333,12 +746,12 @@ module Jelly
         unless target
           raise InvalidAddressException.new("SEND to invalid address #{address}")
         end
-        needs_ack = @engine.config.enable_message_acks
-        ttl = @engine.config.default_message_ttl
+        needs_ack = @engine.configuration.enable_message_acks
+        ttl = @engine.configuration.default_message_ttl
         message = Message.new(process.address, value, needs_ack, ttl)
         process.add_dependency(target.address)
-        if target.mailbox.size >= @engine.config.max_mailbox_size
-          case @engine.config.mailbox_full_behavior
+        if target.mailbox.size >= @engine.configuration.max_mailbox_size
+          case @engine.configuration.mailbox_full_behavior
           when :fail
             process.remove_dependency(target.address)
             raise MailboxOverflowException.new("Target mailbox is full")
@@ -360,7 +773,7 @@ module Jelly
             process.mailbox.add_ack(ack)
           end
           if (target.state == Process::State::WAITING ||
-             (target.state == Process::State::STALE && @engine.config.auto_reactivate_processes))
+             (target.state == Process::State::STALE && @engine.configuration.auto_reactivate_processes))
             if target.waiting_for.nil? ||
                target.mailbox.matches_pattern?(message.value, target.waiting_for.not_nil!)
               @engine.queue_process_for_reactivation(target)
@@ -389,7 +802,7 @@ module Jelly
           return Value.new unless message
           check_stack_capacity(process)
           process.stack.push(message.value)
-          if message.needs_ack && @engine.config.enable_message_acks
+          if message.needs_ack && @engine.configuration.enable_message_acks
             ack = MessageAcknowledgment.new(message.id, process.address, :processed)
             target = @engine.processes.find { |p| p.address == message.sender }
             target.mailbox.add_ack(ack) if target
@@ -403,30 +816,46 @@ module Jelly
       # Receive a message matching a pattern
       private def execute_receive_select(process : Process, instruction : Instruction) : Value
         process.counter += 1
-        unless instruction.value.is_null?
-          pattern = instruction.value
+
+        # Determine the pattern
+        pattern = if instruction.value.is_null?
+                    # Special case: null pattern in instruction means "match anything"
+                    nil # we'll handle this specially below
+                  else
+                    instruction.value
+                  end
+
+        # Special handling for wildcard (null pattern)
+        if pattern.nil?
+          # Get first message, regardless of content
+          message = process.mailbox.messages.first
         else
-          check_stack_size(process, 1, "RECEIVE_SELECT")
-          pattern = process.stack.pop
+          message = process.mailbox.select(pattern)
         end
-        message = process.mailbox.select(pattern)
+
         if message
           check_stack_capacity(process)
           process.stack.push(message.value)
-          if message.needs_ack && @engine.config.enable_message_acks
+
+          if message.needs_ack && @engine.configuration.enable_message_acks
             ack = MessageAcknowledgment.new(message.id, process.address, :processed)
             target = @engine.processes.find { |p| p.address == message.sender }
             target.mailbox.add_ack(ack) if target
           end
+
           Log.debug { "Process <#{process.address}> received selected message: #{message.value.inspect}" }
           @engine.check_blocked_sends(process)
-          message.value
+
+          return message.value
         else
+          # No matching message → block
           process.state = Process::State::WAITING
           process.waiting_for = pattern
           process.waiting_since = Time.utc
           process.waiting_timeout = nil
-          Log.debug { "Process <#{process.address}> waiting for message matching pattern" }
+
+          Log.debug { "Process <#{process.address}> waiting for message#{" matching pattern" unless pattern.nil?}" }
+
           Value.new
         end
       end
@@ -443,7 +872,7 @@ module Jelly
         if message
           check_stack_capacity(process)
           process.stack.push(message.value)
-          if message.needs_ack && @engine.config.enable_message_acks
+          if message.needs_ack && @engine.configuration.enable_message_acks
             ack = MessageAcknowledgment.new(message.id, process.address, :processed)
             target = @engine.processes.find { |p| p.address == message.sender }
             target.mailbox.add_ack(ack) if target
@@ -509,7 +938,7 @@ module Jelly
         name = Box(String).unbox(instruction.value.pointer)
         if address = @engine.process_registry.lookup(name)
           check_stack_capacity(process)
-          process.stack.push(Value.new(address.to_i))
+          process.stack.push(Value.new(address.to_i64))
           Value.new(true)
         else
           check_stack_capacity(process)
@@ -532,14 +961,282 @@ module Jelly
         end
       end
 
+      # Kill a process by address
+      private def execute_kill(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "KILL")
+
+        addr_value = process.stack.pop
+        unless addr_value.is_integer?
+          raise TypeMismatchException.new("KILL requires an Integer process address")
+        end
+
+        address = addr_value.to_i64.to_u64
+
+        target = @engine.processes.find { |p| p.address == address }
+
+        if target
+          target.state = Process::State::DEAD
+          Log.debug { "Process <#{process.address}> killed process <#{address}>" }
+
+          # Push success onto the stack
+          check_stack_capacity(process)
+          process.stack.push(Value.new(true))
+
+          Value.new(true) # optional: return value for consistency, though not used
+        else
+          # Push failure onto the stack
+          check_stack_capacity(process)
+          process.stack.push(Value.new(false))
+
+          Value.new(false)
+        end
+      end
+
+      # Sleep for a number of seconds
+      private def execute_sleep(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "SLEEP")
+        duration = process.stack.pop
+        unless duration.is_numeric?
+          raise TypeMismatchException.new("SLEEP requires a numeric value (seconds)")
+        end
+        seconds = duration.to_f64
+        if seconds > 0
+          sleep seconds.seconds
+        end
+        Value.new
+      end
+
+      # Create a new empty map
+      private def execute_map_new(process : Process) : Value
+        process.counter += 1
+        check_stack_capacity(process)
+        value = Value.new(Hash(String, Value).new)
+        process.stack.push(value)
+        value
+      end
+
+      # Get value from map by key
+      private def execute_map_get(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "MAP_GET")
+        key = process.stack.pop
+        map_val = process.stack.pop
+        unless map_val.is_map?
+          raise TypeMismatchException.new("MAP_GET requires a Map")
+        end
+        unless key.is_string?
+          raise TypeMismatchException.new("MAP_GET requires a String key")
+        end
+        check_stack_capacity(process)
+        map = map_val.to_h
+        result = map[key.to_s]? || Value.new
+        process.stack.push(result.clone)
+        result
+      end
+
+      # Set value in map by key
+      private def execute_map_set(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 3, "MAP_SET")
+        value = process.stack.pop
+        key = process.stack.pop
+        map_val = process.stack.pop
+        unless map_val.is_map?
+          raise TypeMismatchException.new("MAP_SET requires a Map")
+        end
+        unless key.is_string?
+          raise TypeMismatchException.new("MAP_SET requires a String key")
+        end
+        check_stack_capacity(process)
+        map = map_val.to_h
+        map[key.to_s] = value
+        result = Value.new(map)
+        process.stack.push(result)
+        result
+      end
+
+      # Delete key from map
+      private def execute_map_delete(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "MAP_DELETE")
+        key = process.stack.pop
+        map_val = process.stack.pop
+        unless map_val.is_map?
+          raise TypeMismatchException.new("MAP_DELETE requires a Map")
+        end
+        unless key.is_string?
+          raise TypeMismatchException.new("MAP_DELETE requires a String key")
+        end
+        check_stack_capacity(process)
+        map = map_val.to_h
+        map.delete(key.to_s)
+        result = Value.new(map)
+        process.stack.push(result)
+        result
+      end
+
+      # Get all keys from map as array
+      private def execute_map_keys(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "MAP_KEYS")
+        map_val = process.stack.pop
+        unless map_val.is_map?
+          raise TypeMismatchException.new("MAP_KEYS requires a Map")
+        end
+        check_stack_capacity(process)
+        map = map_val.to_h
+        keys = map.keys.map { |k| Value.new(k) }
+        result = Value.new(keys)
+        process.stack.push(result)
+        result
+      end
+
+      # Get size of map
+      private def execute_map_size(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "MAP_SIZE")
+        map_val = process.stack.pop
+        unless map_val.is_map?
+          raise TypeMismatchException.new("MAP_SIZE requires a Map")
+        end
+        check_stack_capacity(process)
+        result = Value.new(map_val.to_h.size.to_u64)
+        process.stack.push(result)
+        result
+      end
+
+      # Create a new array
+      private def execute_array_new(process : Process, instruction : Instruction) : Value
+        process.counter += 1
+        check_stack_capacity(process)
+        size = if instruction.value.is_integer?
+                 instruction.value.to_i64
+               else
+                 0
+               end
+        arr = Array(Value).new(size) { Value.new }
+        result = Value.new(arr)
+        process.stack.push(result)
+        result
+      end
+
+      # Get element from array by index
+      private def execute_array_get(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "ARRAY_GET")
+        index = process.stack.pop
+        arr_val = process.stack.pop
+        unless arr_val.is_array?
+          raise TypeMismatchException.new("ARRAY_GET requires an Array")
+        end
+        unless index.is_integer?
+          raise TypeMismatchException.new("ARRAY_GET requires an Integer index")
+        end
+        check_stack_capacity(process)
+        arr = arr_val.to_a
+        idx = index.to_i64
+        if idx < 0 || idx >= arr.size
+          raise EmulationException.new("ARRAY_GET index out of bounds: #{idx}")
+        end
+        result = arr[idx].clone
+        process.stack.push(result)
+        result
+      end
+
+      # Set element in array by index
+      private def execute_array_set(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 3, "ARRAY_SET")
+        value = process.stack.pop
+        index = process.stack.pop
+        arr_val = process.stack.pop
+        unless arr_val.is_array?
+          raise TypeMismatchException.new("ARRAY_SET requires an Array")
+        end
+        unless index.is_integer?
+          raise TypeMismatchException.new("ARRAY_SET requires an Integer index")
+        end
+        check_stack_capacity(process)
+        arr = arr_val.to_a
+        idx = index.to_i64
+        if idx < 0 || idx >= arr.size
+          raise EmulationException.new("ARRAY_SET index out of bounds: #{idx}")
+        end
+        arr[idx] = value
+        result = Value.new(arr)
+        process.stack.push(result)
+        result
+      end
+
+      # Push element to end of array
+      private def execute_array_push(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "ARRAY_PUSH")
+        value = process.stack.pop
+        arr_val = process.stack.pop
+        unless arr_val.is_array?
+          raise TypeMismatchException.new("ARRAY_PUSH requires an Array")
+        end
+        check_stack_capacity(process)
+        arr = arr_val.to_a
+        arr.push(value)
+        result = Value.new(arr)
+        process.stack.push(result)
+        result
+      end
+
+      # Pop element from end of array
+      private def execute_array_pop(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "ARRAY_POP")
+        arr_val = process.stack.pop
+        unless arr_val.is_array?
+          raise TypeMismatchException.new("ARRAY_POP requires an Array")
+        end
+        arr = arr_val.to_a
+        if arr.empty?
+          raise EmulationException.new("ARRAY_POP on empty array")
+        end
+        check_stack_capacity(process)
+        value = arr.pop
+        result = Value.new(arr)
+        process.stack.push(result)
+        process.stack.push(value)
+        value
+      end
+
+      # Get length of array
+      private def execute_array_length(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "ARRAY_LENGTH")
+        arr_val = process.stack.pop
+        unless arr_val.is_array?
+          raise TypeMismatchException.new("ARRAY_LENGTH requires an Array")
+        end
+        check_stack_capacity(process)
+        result = Value.new(arr_val.to_a.size.to_u64)
+        process.stack.push(result)
+        result
+      end
+
+      # Throw an exception
+      private def execute_throw(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "THROW")
+        error_value = process.stack.pop
+        raise EmulationException.new("THROW: #{error_value.to_s}")
+      end
+
       # Helper method to check stack size
       private def check_stack_size(process : Process, required : Int32, operation : String)
-        raise VMException.new("Stack underflow for #{operation}") if process.stack.size < required
+        raise EmulationException.new("Stack underflow for #{operation}") if process.stack.size < required
       end
 
       # Helper method to check stack capacity
       private def check_stack_capacity(process : Process)
-        raise VMException.new("Stack overflow") if process.stack.size >= @engine.config.max_stack_size
+        raise EmulationException.new("Stack overflow") if process.stack.size >= @engine.configuration.max_stack_size
       end
     end
   end

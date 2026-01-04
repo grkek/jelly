@@ -2,43 +2,255 @@ module Jelly
   module VirtualMachine
     enum Code : UInt8
       # Stack manipulation
-      POP
-      DUPLICATE
-      SWAP
 
-      # Type-specific push instructions
-      PUSH_INTEGER
-      PUSH_FLOAT
-      PUSH_STRING
-      PUSH_BOOLEAN
-      PUSH_NULL
+      POP           # Pop top value off stack and discard
+                    # Stack: [a] → []
 
-      # Arithmetic/string operations
-      ADD
-      SUBTRACT
-      CONCATENATE
-      LESS_THAN
-      EQUAL
+      DUPLICATE     # Duplicate the top value
+                    # Stack: [a] → [a, a]
+
+      SWAP          # Swap the top two values
+                    # Stack: [a, b] → [b, a]
+
+      ROT           # Rotate top three values
+                    # Stack: [a, b, c] → [b, c, a]
+
+      OVER          # Copy the second value to the top
+                    # Stack: [a, b] → [a, b, a]
+
+      DROP          # Alias for POP (clearer intent for discarding)
+                    # Stack: [a] → []
+
+      # Push instructions (type-specific)
+
+      PUSH_INTEGER  # Push an integer value onto the stack
+                    # Operand: Int64
+                    # Stack: [] → [int]
+
+      PUSH_UNSIGNED_INTEGER  # Push an unsigned integer value onto the stack
+                             # Operand: UInt64
+                             # Stack: [] → [int]
+
+      PUSH_FLOAT    # Push a float value onto the stack
+                    # Operand: Float64
+                    # Stack: [] → [float]
+
+      PUSH_STRING   # Push a string value onto the stack
+                    # Operand: String
+                    # Stack: [] → [string]
+
+      PUSH_BOOLEAN  # Push a boolean value onto the stack
+                    # Operand: Bool
+                    # Stack: [] → [bool]
+
+      PUSH_NULL     # Push a null value onto the stack
+                    # Stack: [] → [null]
+
+      # Arithmetic operations
+
+      ADD           # Add top two numeric values
+                    # Stack: [a, b] → [a + b]
+                    # Returns Float64 if either operand is float
+
+      SUBTRACT      # Subtract top from second
+                    # Stack: [a, b] → [a - b]
+
+      MULTIPLY      # Multiply top two numeric values
+                    # Stack: [a, b] → [a * b]
+
+      DIVIDE        # Divide second by top
+                    # Stack: [a, b] → [a / b]
+                    # Raises EmulationException on division by zero
+
+      MODULO        # Modulo (remainder) of second divided by top
+                    # Stack: [a, b] → [a % b]
+
+      NEGATE        # Negate top numeric value (unary minus)
+                    # Stack: [a] → [-a]
+
+      # String operations
+
+      CONCATENATE   # Concatenate two strings
+                    # Stack: [str1, str2] → [str1 + str2]
+
+      STRING_LENGTH # Get length of string
+                    # Stack: [str] → [length]
+
+      SUBSTRING     # Extract substring
+                    # Stack: [str, start, length] → [substring]
+
+      # Comparison operations
+      # All comparisons push a boolean result
+
+      LESS_THAN             # Check if second < top
+                            # Stack: [a, b] → [a < b]
+
+      GREATER_THAN          # Check if second > top
+                            # Stack: [a, b] → [a > b]
+
+      LESS_THAN_OR_EQUAL    # Check if second <= top
+                            # Stack: [a, b] → [a <= b]
+
+      GREATER_THAN_OR_EQUAL # Check if second >= top
+                            # Stack: [a, b] → [a >= b]
+
+      EQUAL                 # Check if two values are equal (any type)
+                            # Stack: [a, b] → [a == b]
+
+      NOT_EQUAL             # Check if two values are not equal
+                            # Stack: [a, b] → [a != b]
+
+      # Logical operators
+
+      AND           # Logical AND of top two values
+                    # Stack: [a, b] → [a && b]
+
+      OR            # Logical OR of top two values
+                    # Stack: [a, b] → [a || b]
+
+      NOT           # Logical NOT of top value
+                    # Stack: [a] → [!a]
+
+      # Variable operators
+
+      LOAD_LOCAL    # Push local variable onto stack
+                    # Operand: variable index (Int64)
+                    # Stack: [] → [value]
+
+      STORE_LOCAL   # Pop stack into local variable
+                    # Operand: variable index (Int64)
+                    # Stack: [value] → []
+
+      LOAD_GLOBAL   # Push global variable onto stack
+                    # Operand: variable name (String)
+                    # Stack: [] → [value]
+
+      STORE_GLOBAL  # Pop stack into global variable
+                    # Operand: variable name (String)
+                    # Stack: [value] → []
 
       # Flow control
-      CALL
-      RETURN
-      JUMP
-      JUMP_IF
 
-      # Concurrency
-      SPAWN
-      SEND
-      RECEIVE
-      RECEIVE_SELECT
-      RECEIVE_TIMEOUT
-      SEND_AFTER
-      REGISTER_PROCESS
-      WHEREIS_PROCESS
-      PEEK_MAILBOX
+      CALL          # Call a subroutine
+                    # Operand: subroutine name (String)
+                    # Pushes return address to call stack
 
-      # I/O
-      PRINT
+      RETURN        # Return from subroutine
+                    # Pops return address from call stack
+                    # If call stack empty, terminates process
+
+      JUMP          # Unconditional jump to absolute address
+                    # Operand: target address (Int64)
+
+      JUMP_IF       # Jump if top of stack is truthy
+                    # Operand: relative offset (Int64)
+                    # Stack: [condition] → []
+
+      JUMP_UNLESS   # Jump if top of stack is falsy
+                    # Operand: relative offset (Int64)
+                    # Stack: [condition] → []
+
+      HALT          # Stop process execution cleanly
+                    # Sets process state to DEAD
+
+      # Concurrency / actor model
+
+      SPAWN         # Spawn a new process
+                    # Stack: [] → [new_process_address]
+
+      SELF          # Push current process address onto stack
+                    # Stack: [] → [self_address]
+
+      SEND          # Send message to another process
+                    # Operand: Tuple(UInt64, Value) - (target_address, message)
+                    # Stack unchanged (message in operand)
+
+      RECEIVE       # Receive any message from mailbox (blocking)
+                    # Stack: [] → [message]
+                    # Sets process to WAITING if mailbox empty
+
+      RECEIVE_SELECT # Receive message matching pattern
+                     # Operand: pattern (Value) or null to use stack
+                     # Stack: [pattern?] → [message]
+                     # Sets process to WAITING if no match
+
+      RECEIVE_TIMEOUT # Receive with timeout
+                      # Operand: Tuple(Value, Float64) - (pattern, timeout_seconds)
+                      # Stack: [] → [message, success_bool]
+
+      SEND_AFTER    # Schedule delayed message
+                    # Operand: Tuple(UInt64, Value, Float64) - (target, message, delay)
+
+      REGISTER_PROCESS # Register process with a name
+                       # Operand: name (String)
+                       # Returns bool success
+
+      WHEREIS_PROCESS  # Look up process by registered name
+                       # Operand: name (String)
+                       # Stack: [] → [address or null]
+
+      PEEK_MAILBOX  # Peek at next message without consuming
+                    # Stack: [] → [message or null]
+
+      KILL          # Terminate a process
+                    # Stack: [process_address] → []
+
+      SLEEP         # Pause execution for duration
+                    # Stack: [seconds] → []
+
+      # Map operations
+
+      MAP_NEW       # Create empty map
+                    # Stack: [] → [{}]
+
+      MAP_GET       # Get value by key
+                    # Stack: [map, key] → [value]
+
+      MAP_SET       # Set value by key
+                    # Stack: [map, key, value] → [map]
+
+      MAP_DELETE    # Delete key from map
+                    # Stack: [map, key] → [map]
+
+      MAP_KEYS      # Get all keys as array
+                    # Stack: [map] → [keys_array]
+
+      MAP_SIZE      # Get number of entries
+                    # Stack: [map] → [size]
+
+      # Array operations
+
+      ARRAY_NEW     # Create empty array (or with size)
+                    # Stack: [] → [[]]
+                    # Operand: optional initial size
+
+      ARRAY_GET     # Get element by index
+                    # Stack: [array, index] → [value]
+
+      ARRAY_SET     # Set element by index
+                    # Stack: [array, index, value] → [array]
+
+      ARRAY_PUSH    # Append element to array
+                    # Stack: [array, value] → [array]
+
+      ARRAY_POP     # Remove and return last element
+                    # Stack: [array] → [array, value]
+
+      ARRAY_LENGTH  # Get array length
+                    # Stack: [array] → [length]
+
+      # I/O operations
+
+      PRINT_LINE         # Print top of stack to stdout
+                    # Stack: [value] → []
+
+      READ_LINE     # Read line from stdin
+                    # Stack: [] → [string]
+
+      # Error handling
+
+      THROW         # Raise an exception
+                    # Stack: [error_value] → (process dies)
     end
   end
 end

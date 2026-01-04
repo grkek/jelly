@@ -5,9 +5,7 @@ module Jelly
       Log = ::Log.for(self)
 
       property processes : Array(Process) = [] of Process
-      property instructions : Array(Instruction) = [] of Instruction
-      property subroutines : Hash(String, Subroutine) = {} of String => Subroutine
-      property config : Configuration = Configuration.new
+      property configuration : Configuration = Configuration.new
       property custom_handlers : Hash(Code, Proc(Process, Instruction, Value)) = {} of Code => Proc(Process, Instruction, Value)
       property breakpoints : Array(Proc(Process, Bool)) = [] of Proc(Process, Bool)
       property process_registry : ProcessRegistry = ProcessRegistry.new
@@ -62,7 +60,7 @@ module Jelly
 
           # Check if this process was blocking any sends
           p.blocked_sends.each_with_index do |(target_address, message), index|
-            if target_address == process.address && process.mailbox.size < @config.max_mailbox_size
+            if target_address == process.address && process.mailbox.size < @configuration.max_mailbox_size
               # Try to send the message now
               if process.mailbox.push(message)
                 Log.debug { "Unblocked send from <0.#{p.address}> to <0.#{process.address}>" }
@@ -97,15 +95,15 @@ module Jelly
           next unless target
 
           # Create and deliver the message
-          message = Message.new(sender, value, @config.enable_message_acks)
+          message = Message.new(sender, value, @configuration.enable_message_acks)
 
-          if target.mailbox.size < config.max_mailbox_size && target.mailbox.push(message)
+          if target.mailbox.size < @configuration.max_mailbox_size && target.mailbox.push(message)
             Log.debug { "Delivered delayed message from <0.#{sender}> to <0.#{recipient}>" }
             messages_delivered += 1
 
             # Queue for reactivation if waiting
             if (target.state == Process::State::WAITING ||
-               (target.state == Process::State::STALE && config.auto_reactivate_processes))
+               (target.state == Process::State::STALE && @configuration.auto_reactivate_processes))
               # Check if the message matches what the process is waiting for
               if target.waiting_for.nil? ||
                  target.mailbox.matches_pattern?(message.value, target.waiting_for.not_nil!)
@@ -128,8 +126,8 @@ module Jelly
 
         loop do
           iterations += 1
-          if iterations >= config.iteration_limit
-            Log.warn { "Engine run exceeded iteration limit (#{config.iteration_limit})" }
+          if iterations >= @configuration.iteration_limit
+            Log.warn { "Engine run exceeded iteration limit (#{@configuration.iteration_limit})" }
             break
           end
 
@@ -141,7 +139,7 @@ module Jelly
 
           # Clean up expired messages periodically
           now = Time.utc
-          if now - last_cleanup_time > config.message_cleanup_interval
+          if now - last_cleanup_time > @configuration.message_cleanup_interval
             process_manager.cleanup_expired_messages
             last_cleanup_time = now
           end
@@ -175,7 +173,7 @@ module Jelly
           if !progress_made && !delayed_delivered && process_manager.detect_deadlock
             Log.warn { "Deadlock detected - terminating execution" }
 
-            if config.deadlock_detection
+            if @configuration.deadlock_detection
               # Mark all waiting processes as dead and raise an exception
               processes.each do |p|
                 if p.state == Process::State::WAITING || p.state == Process::State::STALE || p.state == Process::State::BLOCKED
@@ -194,13 +192,13 @@ module Jelly
           process_manager.update_process_states(completed_processes)
 
           # Check if all processes are done
-          if processes.empty? || processes.all? { |p| p.state == Process::State::DEAD }
+          if processes.all? { |p| p.state == Process::State::DEAD }
             Log.info { "All processes completed" }
             break
           end
 
           Fiber.yield
-          sleep config.execution_delay
+          sleep @configuration.execution_delay
         end
 
         log_final_status(iterations)
