@@ -48,7 +48,7 @@ module Jelly
       end
 
       # Create a string value
-      def initialize(object : ::String)
+      def initialize(object : String)
         @primitive_type = PrimitiveType::String
         @pointer = Box.box(object)
         @custom_type = nil

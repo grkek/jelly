@@ -23,6 +23,10 @@ module Jelly
 
       # Push instructions (type-specific)
 
+      PUSH_INSTRUCTIONS # Push an instruction array onto the stack
+      # Operand: Array(Instruction)
+      # Stack: [] → [instructions]
+
       PUSH_INTEGER # Push an integer value onto the stack
       # Operand: Int64
       # Stack: [] → [int]

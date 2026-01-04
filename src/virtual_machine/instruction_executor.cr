@@ -22,6 +22,7 @@ module Jelly
           when Code::OVER      then execute_over(process)
           when Code::DROP      then execute_pop(process)
             # Push instructions
+          when Code::PUSH_INSTRUCTIONS     then execute_push_instructions(process, instruction)
           when Code::PUSH_INTEGER          then execute_push_integer(process, instruction)
           when Code::PUSH_UNSIGNED_INTEGER then execute_push_unsigned_integer(process, instruction)
           when Code::PUSH_FLOAT            then execute_push_float(process, instruction)
@@ -125,9 +126,28 @@ module Jelly
           else
             Log.error { "Process <#{process.address}>: #{ex.class.name == "EmulationException" ? ex.message : "Unhandled error: #{ex.message}"}" }
             process.state = Process::State::DEAD
+
+            # Notify linked processes via fault handler
+            reason = ExitReason.custom(ex.message || "Unknown error")
+            process.exit_reason = reason
+            @engine.fault_handler.handle_exit(process, reason)
+
             Value.new(ex)
           end
         end
+      end
+
+      # Push an instruction array onto the stack
+      private def execute_push_instructions(process : Process, instruction : Instruction) : Value
+        process.counter += 1
+
+        unless instruction.value.type == "Array(Jelly::VirtualMachine::Instruction)"
+          raise TypeMismatchException.new("PUSH_INSTRUCTIONS requires an array of instructions")
+        end
+
+        check_stack_capacity(process)
+        process.stack.push(instruction.value)
+        instruction.value
       end
 
       # Push an integer value onto the stack
@@ -390,7 +410,7 @@ module Jelly
         check_stack_size(process, 1, "STRING_LENGTH")
         str = process.stack.pop
         unless str.is_string?
-          raise TypeMismatchException.new("STRING_LENGTH requires a String value")
+          raise TypeMismatchException.new("STRING_LENGTH requires a string value")
         end
         check_stack_capacity(process)
         result = Value.new(str.to_s.size.to_u64)
@@ -406,7 +426,7 @@ module Jelly
         start = process.stack.pop
         str = process.stack.pop
         unless str.is_string?
-          raise TypeMismatchException.new("SUBSTRING requires a String value")
+          raise TypeMismatchException.new("SUBSTRING requires a string value")
         end
         unless start.is_integer? && length.is_integer?
           raise TypeMismatchException.new("SUBSTRING requires Integer start and length")
@@ -546,7 +566,7 @@ module Jelly
       private def execute_load_local(process : Process, instruction : Instruction) : Value
         process.counter += 1
         unless instruction.value.is_unsigned_integer?
-          raise TypeMismatchException.new("LOAD_LOCAL requires an Integer index")
+          raise TypeMismatchException.new("LOAD_LOCAL requires an integer index")
         end
         index = instruction.value.to_i64
         if index < 0 || index >= process.locals.size
@@ -562,7 +582,7 @@ module Jelly
       private def execute_store_local(process : Process, instruction : Instruction) : Value
         process.counter += 1
         unless instruction.value.is_unsigned_integer?
-          raise TypeMismatchException.new("STORE_LOCAL requires an Integer index")
+          raise TypeMismatchException.new("STORE_LOCAL requires an integer index")
         end
         check_stack_size(process, 1, "STORE_LOCAL")
         index = instruction.value.to_i64
@@ -580,7 +600,7 @@ module Jelly
       private def execute_load_global(process : Process, instruction : Instruction) : Value
         process.counter += 1
         unless instruction.value.is_string?
-          raise TypeMismatchException.new("LOAD_GLOBAL requires a String name")
+          raise TypeMismatchException.new("LOAD_GLOBAL requires a string name")
         end
         name = instruction.value.to_s
         value = process.globals[name]?
@@ -596,7 +616,7 @@ module Jelly
       private def execute_store_global(process : Process, instruction : Instruction) : Value
         process.counter += 1
         unless instruction.value.is_string?
-          raise TypeMismatchException.new("STORE_GLOBAL requires a String name")
+          raise TypeMismatchException.new("STORE_GLOBAL requires a string name")
         end
         check_stack_size(process, 1, "STORE_GLOBAL")
         name = instruction.value.to_s
@@ -611,7 +631,7 @@ module Jelly
         check_stack_size(process, 1, "JUMP_IF")
         condition = process.stack.pop
         unless instruction.value.is_integer?
-          raise TypeMismatchException.new("JUMP_IF requires an Integer offset")
+          raise TypeMismatchException.new("JUMP_IF requires an integer offset")
         end
         offset = instruction.value.to_i64
         if condition.to_b
@@ -630,7 +650,7 @@ module Jelly
         check_stack_size(process, 1, "JUMP_UNLESS")
         condition = process.stack.pop
         unless instruction.value.is_integer?
-          raise TypeMismatchException.new("JUMP_UNLESS requires an Integer offset")
+          raise TypeMismatchException.new("JUMP_UNLESS requires an integer offset")
         end
         offset = instruction.value.to_i64
         unless condition.to_b
@@ -647,7 +667,7 @@ module Jelly
       private def execute_jump(process : Process, instruction : Instruction) : Value
         process.counter += 1
         unless instruction.value.is_integer?
-          raise TypeMismatchException.new("JUMP requires an Integer offset")
+          raise TypeMismatchException.new("JUMP requires an integer offset")
         end
         offset = instruction.value.to_i64
 
@@ -685,7 +705,7 @@ module Jelly
       private def execute_call(process : Process, instruction : Instruction) : Value
         process.counter += 1
         unless instruction.value.is_string?
-          raise TypeMismatchException.new("CALL requires a String subroutine name")
+          raise TypeMismatchException.new("CALL requires a string subroutine name")
         end
         subroutine_name = instruction.value.to_s
         subroutine = process.subroutines[subroutine_name]?
@@ -730,10 +750,71 @@ module Jelly
       # Spawn a new process
       private def execute_spawn(process : Process) : Value
         process.counter += 1
-        new_process = @engine.process_manager.create_process(instructions: process.instructions)
+
+        # Check if there's an instruction array on the stack
+        instructions_to_use = if !process.stack.empty? && process.stack.last.type == "Array(Jelly::VirtualMachine::Instruction)"
+                                array_value = process.stack.pop
+                                Box(Array(Instruction)).unbox(array_value.pointer)
+                              else
+                                process.instructions
+                              end
+
+        new_process = @engine.process_manager.create_process(instructions: instructions_to_use)
         @engine.processes << new_process
+
         check_stack_capacity(process)
         process.stack.push(Value.new(new_process.address.to_i64))
+
+        Log.debug { "Process <#{process.address}> spawned new process <#{new_process.address}>" }
+        Value.new(new_process.address.to_i64)
+      end
+
+      # Spawn and link atomically
+      private def execute_spawn_link(process : Process) : Value
+        process.counter += 1
+
+        # Check if there's an instruction array on the stack
+        instructions_to_use = if !process.stack.empty? && process.stack.last.type == "Array(Jelly::VirtualMachine::Instruction)"
+                                array_value = process.stack.pop
+                                Box(Array(Instruction)).unbox(array_value.pointer)
+                              else
+                                process.instructions
+                              end
+
+        new_process = @engine.process_manager.create_process(instructions: instructions_to_use)
+        @engine.processes << new_process
+
+        @engine.process_links.link(process.address, new_process.address)
+
+        check_stack_capacity(process)
+        process.stack.push(Value.new(new_process.address.to_i64))
+
+        Log.debug { "Process <#{process.address}> spawn_linked <#{new_process.address}>" }
+        Value.new(new_process.address.to_i64)
+      end
+
+      # Spawn and monitor atomically
+      private def execute_spawn_monitor(process : Process) : Value
+        process.counter += 1
+
+        # Check if there's an instruction array on the stack
+        instructions_to_use = if !process.stack.empty? && process.stack.last.type == "Array(Jelly::VirtualMachine::Instruction)"
+                                array_value = process.stack.pop
+                                Box(Array(Instruction)).unbox(array_value.pointer)
+                              else
+                                process.instructions
+                              end
+
+        new_process = @engine.process_manager.create_process(instructions: instructions_to_use)
+        @engine.processes << new_process
+
+        ref = @engine.process_links.monitor(process.address, new_process.address)
+
+        check_stack_capacity(process)
+        process.stack.push(Value.new(new_process.address.to_i64))
+        process.stack.push(Value.new(ref.id.to_i64))
+
+        Log.debug { "Process <#{process.address}> spawn_monitored <#{new_process.address}> (ref: #{ref.id})" }
         Value.new(new_process.address.to_i64)
       end
 
@@ -749,10 +830,13 @@ module Jelly
       # Send a message to another process
       private def execute_send(process : Process, instruction : Instruction) : Value
         process.counter += 1
+
         unless instruction.value.type == "Tuple(UInt64, Jelly::VirtualMachine::Value)"
-          raise TypeMismatchException.new("SEND requires Tuple(UInt64, Value)")
+          raise TypeMismatchException.new("SEND requires a tuple of an unsigned int and a value")
         end
+
         address, value = Box(Tuple(UInt64, Value)).unbox(instruction.value.pointer)
+
         if address == 0 && value.is_string?
           process_name = value.to_s
           address = @engine.process_registry.lookup(process_name) || 0
@@ -760,14 +844,18 @@ module Jelly
           check_stack_size(process, 1, "SEND to named process")
           value = process.stack.pop
         end
+
         target = @engine.processes.find { |p| p.address == address && p.state != Process::State::DEAD }
+
         unless target
           raise InvalidAddressException.new("SEND to invalid address #{address}")
         end
+
         needs_ack = @engine.configuration.enable_message_acks
         ttl = @engine.configuration.default_message_ttl
         message = Message.new(process.address, value, needs_ack, ttl)
         process.add_dependency(target.address)
+
         if target.mailbox.size >= @engine.configuration.max_mailbox_size
           case @engine.configuration.mailbox_full_behavior
           when :fail
@@ -784,6 +872,7 @@ module Jelly
             return Value.new
           end
         end
+
         if target.mailbox.push(message)
           Log.debug { "Process <#{process.address}> sent message to <0.#{target.address}>" }
           if message.needs_ack
@@ -813,6 +902,7 @@ module Jelly
           process.waiting_for = nil
           process.waiting_since = Time.utc
           process.waiting_timeout = nil
+          process.counter -= 1 # Re-execute RECEIVE when woken up
           Log.debug { "Process <#{process.address}> waiting for any message" }
           return Value.new
         else
@@ -882,7 +972,7 @@ module Jelly
       private def execute_receive_timeout(process : Process, instruction : Instruction) : Value
         process.counter += 1
         unless instruction.value.type == "Tuple(Value, Float64)"
-          raise TypeMismatchException.new("RECEIVE_TIMEOUT requires Tuple(Value, Float64)")
+          raise TypeMismatchException.new("RECEIVE_TIMEOUT requires a tuple and a float")
         end
         pattern, timeout_seconds = Box(Tuple(Value, Float64)).unbox(instruction.value.pointer)
         timeout = timeout_seconds.seconds
@@ -919,7 +1009,7 @@ module Jelly
       private def execute_send_after(process : Process, instruction : Instruction) : Value
         process.counter += 1
         unless instruction.value.type == "Tuple(UInt64, Value, Float64)"
-          raise TypeMismatchException.new("SEND_AFTER requires Tuple(UInt64, Value, Float64)")
+          raise TypeMismatchException.new("SEND_AFTER requires an unsigned integer, a value and a float")
         end
         address, value, delay_seconds = Box(Tuple(UInt64, Value, Float64)).unbox(instruction.value.pointer)
         target = @engine.processes.find { |p| p.address == address && p.state != Process::State::DEAD }
@@ -934,7 +1024,7 @@ module Jelly
       private def execute_register_process(process : Process, instruction : Instruction) : Value
         process.counter += 1
         unless instruction.value.type == "String"
-          raise TypeMismatchException.new("REGISTER requires a String name")
+          raise TypeMismatchException.new("REGISTER requires a string")
         end
         name = Box(String).unbox(instruction.value.pointer)
         if @engine.process_registry.register(name, process.address)
@@ -951,7 +1041,7 @@ module Jelly
       private def execute_whereis_process(process : Process, instruction : Instruction) : Value
         process.counter += 1
         unless instruction.value.type == "String"
-          raise TypeMismatchException.new("WHEREIS requires a String name")
+          raise TypeMismatchException.new("WHEREIS requires a string")
         end
         name = Box(String).unbox(instruction.value.pointer)
         if address = @engine.process_registry.lookup(name)
@@ -980,30 +1070,40 @@ module Jelly
       end
 
       # Kill a process by address
+      # Kill a process by address
       private def execute_kill(process : Process) : Value
         process.counter += 1
         check_stack_size(process, 1, "KILL")
 
-        addr_value = process.stack.pop
-        unless addr_value.is_integer?
-          raise TypeMismatchException.new("KILL requires an Integer process address")
+        address_value = process.stack.pop
+        unless address_value.is_numeric?
+          raise TypeMismatchException.new("KILL requires an integer process address")
         end
 
-        address = addr_value.to_i64.to_u64
+        pid = address_value.to_i64
+        if pid < 0
+          raise TypeMismatchException.new("KILL requires a non-negative process address")
+        end
+        address = pid.to_u64
 
-        target = @engine.processes.find { |p| p.address == address }
+        # Only target processes that are currently ALIVE
+        target = @engine.processes.find { |p| p.address == address && p.state == Process::State::ALIVE }
 
         if target
           target.state = Process::State::DEAD
+          target.exit_reason = ExitReason.kill if target.responds_to?(:exit_reason=)
+
           Log.debug { "Process <#{process.address}> killed process <#{address}>" }
 
-          # Push success onto the stack
+          # Important: notify links, monitors, supervisors, etc.
+          @engine.fault_handler.handle_exit(target, ExitReason.kill)
+
           check_stack_capacity(process)
           process.stack.push(Value.new(true))
 
-          Value.new(true) # optional: return value for consistency, though not used
+          Value.new(true)
         else
-          # Push failure onto the stack
+          # Non-existent or already dead process → return false
           check_stack_capacity(process)
           process.stack.push(Value.new(false))
 
@@ -1017,7 +1117,7 @@ module Jelly
         check_stack_size(process, 1, "SLEEP")
         duration = process.stack.pop
         unless duration.is_numeric?
-          raise TypeMismatchException.new("SLEEP requires a numeric value (seconds)")
+          raise TypeMismatchException.new("SLEEP requires a numeric value in seconds")
         end
         seconds = duration.to_f64
         if seconds > 0
@@ -1042,10 +1142,10 @@ module Jelly
         key = process.stack.pop
         map_val = process.stack.pop
         unless map_val.is_map?
-          raise TypeMismatchException.new("MAP_GET requires a Map")
+          raise TypeMismatchException.new("MAP_GET requires a map")
         end
         unless key.is_string?
-          raise TypeMismatchException.new("MAP_GET requires a String key")
+          raise TypeMismatchException.new("MAP_GET requires a string key")
         end
         check_stack_capacity(process)
         map = map_val.to_h
@@ -1062,10 +1162,10 @@ module Jelly
         key = process.stack.pop
         map_val = process.stack.pop
         unless map_val.is_map?
-          raise TypeMismatchException.new("MAP_SET requires a Map")
+          raise TypeMismatchException.new("MAP_SET requires a map")
         end
         unless key.is_string?
-          raise TypeMismatchException.new("MAP_SET requires a String key")
+          raise TypeMismatchException.new("MAP_SET requires a string key")
         end
         check_stack_capacity(process)
         map = map_val.to_h
@@ -1082,10 +1182,10 @@ module Jelly
         key = process.stack.pop
         map_val = process.stack.pop
         unless map_val.is_map?
-          raise TypeMismatchException.new("MAP_DELETE requires a Map")
+          raise TypeMismatchException.new("MAP_DELETE requires a map")
         end
         unless key.is_string?
-          raise TypeMismatchException.new("MAP_DELETE requires a String key")
+          raise TypeMismatchException.new("MAP_DELETE requires a string key")
         end
         check_stack_capacity(process)
         map = map_val.to_h
@@ -1101,7 +1201,7 @@ module Jelly
         check_stack_size(process, 1, "MAP_KEYS")
         map_val = process.stack.pop
         unless map_val.is_map?
-          raise TypeMismatchException.new("MAP_KEYS requires a Map")
+          raise TypeMismatchException.new("MAP_KEYS requires a map")
         end
         check_stack_capacity(process)
         map = map_val.to_h
@@ -1117,7 +1217,7 @@ module Jelly
         check_stack_size(process, 1, "MAP_SIZE")
         map_val = process.stack.pop
         unless map_val.is_map?
-          raise TypeMismatchException.new("MAP_SIZE requires a Map")
+          raise TypeMismatchException.new("MAP_SIZE requires a map")
         end
         check_stack_capacity(process)
         result = Value.new(map_val.to_h.size.to_u64)
@@ -1147,10 +1247,10 @@ module Jelly
         index = process.stack.pop
         arr_val = process.stack.pop
         unless arr_val.is_array?
-          raise TypeMismatchException.new("ARRAY_GET requires an Array")
+          raise TypeMismatchException.new("ARRAY_GET requires an array")
         end
         unless index.is_integer?
-          raise TypeMismatchException.new("ARRAY_GET requires an Integer index")
+          raise TypeMismatchException.new("ARRAY_GET requires an integer index")
         end
         check_stack_capacity(process)
         arr = arr_val.to_a
@@ -1171,10 +1271,10 @@ module Jelly
         index = process.stack.pop
         arr_val = process.stack.pop
         unless arr_val.is_array?
-          raise TypeMismatchException.new("ARRAY_SET requires an Array")
+          raise TypeMismatchException.new("ARRAY_SET requires an array")
         end
         unless index.is_integer?
-          raise TypeMismatchException.new("ARRAY_SET requires an Integer index")
+          raise TypeMismatchException.new("ARRAY_SET requires an integer index")
         end
         check_stack_capacity(process)
         arr = arr_val.to_a
@@ -1195,7 +1295,7 @@ module Jelly
         value = process.stack.pop
         arr_val = process.stack.pop
         unless arr_val.is_array?
-          raise TypeMismatchException.new("ARRAY_PUSH requires an Array")
+          raise TypeMismatchException.new("ARRAY_PUSH requires an array")
         end
         check_stack_capacity(process)
         arr = arr_val.to_a
@@ -1211,7 +1311,7 @@ module Jelly
         check_stack_size(process, 1, "ARRAY_POP")
         arr_val = process.stack.pop
         unless arr_val.is_array?
-          raise TypeMismatchException.new("ARRAY_POP requires an Array")
+          raise TypeMismatchException.new("ARRAY_POP requires an array")
         end
         arr = arr_val.to_a
         if arr.empty?
@@ -1231,7 +1331,7 @@ module Jelly
         check_stack_size(process, 1, "ARRAY_LENGTH")
         arr_val = process.stack.pop
         unless arr_val.is_array?
-          raise TypeMismatchException.new("ARRAY_LENGTH requires an Array")
+          raise TypeMismatchException.new("ARRAY_LENGTH requires an array")
         end
         check_stack_capacity(process)
         result = Value.new(arr_val.to_a.size.to_u64)
@@ -1254,7 +1354,7 @@ module Jelly
 
         other_pid_val = process.stack.pop
         unless other_pid_val.is_integer?
-          raise TypeMismatchException.new("LINK requires an Integer process address")
+          raise TypeMismatchException.new("LINK requires an integer process address")
         end
 
         other_pid = other_pid_val.to_i64.to_u64
@@ -1278,7 +1378,7 @@ module Jelly
 
         other_pid_val = process.stack.pop
         unless other_pid_val.is_integer?
-          raise TypeMismatchException.new("UNLINK requires an Integer process address")
+          raise TypeMismatchException.new("UNLINK requires an integer process address")
         end
 
         other_pid = other_pid_val.to_i64.to_u64
@@ -1298,7 +1398,7 @@ module Jelly
 
         target_pid_val = process.stack.pop
         unless target_pid_val.is_integer?
-          raise TypeMismatchException.new("MONITOR requires an Integer process address")
+          raise TypeMismatchException.new("MONITOR requires an integer process address")
         end
 
         target_pid = target_pid_val.to_i64.to_u64
@@ -1338,7 +1438,7 @@ module Jelly
 
         ref_id_val = process.stack.pop
         unless ref_id_val.is_integer?
-          raise TypeMismatchException.new("DEMONITOR requires an Integer reference")
+          raise TypeMismatchException.new("DEMONITOR requires an integer reference")
         end
 
         ref_id = ref_id_val.to_i64.to_u64
@@ -1385,7 +1485,7 @@ module Jelly
         target_val = process.stack.pop
 
         unless target_val.is_integer?
-          raise TypeMismatchException.new("EXIT requires an Integer process address")
+          raise TypeMismatchException.new("EXIT requires an integer process address")
         end
 
         target_pid = target_val.to_i64.to_u64
@@ -1430,43 +1530,6 @@ module Jelly
         Value.new
       end
 
-      # Spawn and link atomically
-      private def execute_spawn_link(process : Process) : Value
-        process.counter += 1
-
-        # Create new process
-        new_process = @engine.process_manager.create_process(instructions: process.instructions)
-        @engine.processes << new_process
-
-        # Atomically link
-        @engine.process_links.link(process.address, new_process.address)
-
-        check_stack_capacity(process)
-        process.stack.push(Value.new(new_process.address.to_i64))
-
-        Log.debug { "Process <#{process.address}> spawn_linked <#{new_process.address}>" }
-        Value.new(new_process.address.to_i64)
-      end
-
-      # Spawn and monitor atomically
-      private def execute_spawn_monitor(process : Process) : Value
-        process.counter += 1
-
-        # Create new process
-        new_process = @engine.process_manager.create_process(instructions: process.instructions)
-        @engine.processes << new_process
-
-        # Atomically monitor
-        ref = @engine.process_links.monitor(process.address, new_process.address)
-
-        check_stack_capacity(process)
-        process.stack.push(Value.new(new_process.address.to_i64))
-        process.stack.push(Value.new(ref.id.to_i64))
-
-        Log.debug { "Process <#{process.address}> spawn_monitored <#{new_process.address}> (ref: #{ref.id})" }
-        Value.new(new_process.address.to_i64)
-      end
-
       # Check if a process is alive
       private def execute_is_alive(process : Process) : Value
         process.counter += 1
@@ -1474,7 +1537,7 @@ module Jelly
 
         pid_val = process.stack.pop
         unless pid_val.is_integer?
-          raise TypeMismatchException.new("IS_ALIVE requires an Integer process address")
+          raise TypeMismatchException.new("IS_ALIVE requires an integer process address")
         end
 
         pid = pid_val.to_i64.to_u64
@@ -1494,7 +1557,7 @@ module Jelly
 
         pid_val = process.stack.pop
         unless pid_val.is_integer?
-          raise TypeMismatchException.new("PROCESS_INFO requires an Integer process address")
+          raise TypeMismatchException.new("PROCESS_INFO requires an integer process address")
         end
 
         pid = pid_val.to_i64.to_u64
@@ -1526,7 +1589,7 @@ module Jelly
         process.counter += 1
 
         unless instruction.value.is_integer?
-          raise TypeMismatchException.new("TRY_CATCH requires an Integer catch offset")
+          raise TypeMismatchException.new("TRY_CATCH requires an integer catch offset")
         end
 
         catch_offset = instruction.value.to_i64
@@ -1605,7 +1668,7 @@ module Jelly
         flag_name_val = process.stack.pop
 
         unless flag_name_val.is_string?
-          raise TypeMismatchException.new("SET_FLAG requires a String flag name")
+          raise TypeMismatchException.new("SET_FLAG requires a string flag name")
         end
 
         flag_name = flag_name_val.to_s
@@ -1627,7 +1690,7 @@ module Jelly
         flag_name_val = process.stack.pop
 
         unless flag_name_val.is_string?
-          raise TypeMismatchException.new("GET_FLAG requires a String flag name")
+          raise TypeMismatchException.new("GET_FLAG requires a string flag name")
         end
 
         flag_name = flag_name_val.to_s

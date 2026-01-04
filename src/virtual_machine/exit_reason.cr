@@ -43,7 +43,7 @@ module Jelly
       end
 
       def self.exception(exception : Exception) : ExitReason
-        reason = new(Type::Exception, exception.message || "unknown error", exception)
+        reason = new(Type::Exception, exception.message || "Unknown error", exception)
 
         if backtrace = exception.backtrace?
           reason.stacktrace.concat(backtrace)
