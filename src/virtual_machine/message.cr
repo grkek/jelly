@@ -17,7 +17,7 @@ module Jelly
         @sender : UInt64,
         @value : Value,
         @needs_ack : Bool = false,
-        @ttl : Time::Span? = nil
+        @ttl : Time::Span? = nil,
       )
         @id = @@id_mutex.synchronize do
           current = @@next_id

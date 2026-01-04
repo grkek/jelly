@@ -1027,7 +1027,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
     end
   end
 
-  describe "concurrency operations" do
+  describe "concurrency / actor model" do
     describe "SPAWN" do
       it "creates a new process and pushes its address" do
         engine = TestHelpers.create_engine
@@ -1415,6 +1415,245 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         process = TestHelpers.create_process_with_stack(engine, instructions, [ValueWrapper.new("Error message")])
         engine.execute(process, instructions[0])
         process.state.should eq(ProcessWrapper::State::DEAD)
+      end
+    end
+
+    describe "TRY_CATCH" do
+      it "catches exception and jumps to handler" do
+        engine = TestHelpers.create_engine
+        instructions = [
+          InstructionWrapper.new(CodeWrapper::TRY_CATCH, ValueWrapper.new(3_i64)), # offset to END_TRY +1
+          InstructionWrapper.new(CodeWrapper::PUSH_STRING, ValueWrapper.new("error")),
+          InstructionWrapper.new(CodeWrapper::THROW),
+          InstructionWrapper.new(CodeWrapper::END_TRY),
+          InstructionWrapper.new(CodeWrapper::CATCH),
+          InstructionWrapper.new(CodeWrapper::HALT),
+        ]
+        process = TestHelpers.create_process(engine, instructions)
+        TestHelpers.run_until_halt(engine, process)
+        process.counter.should eq(6_u64) # HALT
+        process.stack.last.to_h["message"].to_s.should eq("THROW: error")
+      end
+
+      it "executes normally without exception" do
+        engine = TestHelpers.create_engine
+        instructions = [
+          InstructionWrapper.new(CodeWrapper::TRY_CATCH, ValueWrapper.new(3_i64)),
+          InstructionWrapper.new(CodeWrapper::PUSH_INTEGER, ValueWrapper.new(42_i64)),
+          InstructionWrapper.new(CodeWrapper::END_TRY),
+          InstructionWrapper.new(CodeWrapper::HALT),
+          InstructionWrapper.new(CodeWrapper::CATCH),
+          InstructionWrapper.new(CodeWrapper::HALT),
+        ]
+        process = TestHelpers.create_process(engine, instructions)
+        TestHelpers.run_until_halt(engine, process)
+        process.counter.should eq(4_u64) # first HALT
+        process.stack.last.to_i64.should eq(42_i64)
+      end
+    end
+
+    describe "RETHROW" do
+      it "rethows exception to outer handler" do
+        engine = TestHelpers.create_engine
+        instructions = [
+          InstructionWrapper.new(CodeWrapper::TRY_CATCH, ValueWrapper.new(9_i64)), # outer catch
+          InstructionWrapper.new(CodeWrapper::TRY_CATCH, ValueWrapper.new(3_i64)), # inner catch
+          InstructionWrapper.new(CodeWrapper::PUSH_STRING, ValueWrapper.new("error")),
+          InstructionWrapper.new(CodeWrapper::THROW),
+          InstructionWrapper.new(CodeWrapper::END_TRY),
+          InstructionWrapper.new(CodeWrapper::CATCH),
+          InstructionWrapper.new(CodeWrapper::RETHROW),
+          InstructionWrapper.new(CodeWrapper::END_TRY),
+          InstructionWrapper.new(CodeWrapper::CATCH),
+          InstructionWrapper.new(CodeWrapper::HALT),
+        ]
+        process = TestHelpers.create_process(engine, instructions)
+        TestHelpers.run_until_halt(engine, process)
+        process.counter.should eq(10_u64) # outer HALT
+        process.stack.last.to_h["message"].to_s.should eq("THROW: error")
+      end
+    end
+  end
+
+  describe "fault tolerance" do
+    describe "LINK" do
+      it "links to another process" do
+        engine = TestHelpers.create_engine
+        target = TestHelpers.create_process(engine, [] of InstructionWrapper)
+        engine.processes << target
+        instructions = [InstructionWrapper.new(CodeWrapper::LINK)]
+        process = TestHelpers.create_process_with_stack(engine, instructions, [ValueWrapper.new(target.address.to_i64)])
+        engine.execute(process, instructions[0])
+        engine.process_links.linked?(process.address, target.address).should be_true
+      end
+
+      it "raises for invalid process" do
+        engine = TestHelpers.create_engine
+        instructions = [InstructionWrapper.new(CodeWrapper::LINK)]
+        process = TestHelpers.create_process_with_stack(engine, instructions, [ValueWrapper.new(9999_i64)])
+        engine.execute(process, instructions[0])
+        process.state.should eq(ProcessWrapper::State::DEAD)
+      end
+    end
+
+    describe "UNLINK" do
+      it "unlinks from another process" do
+        engine = TestHelpers.create_engine
+        target = TestHelpers.create_process(engine, [] of InstructionWrapper)
+        process = TestHelpers.create_process(engine, [] of InstructionWrapper)
+        engine.processes << target
+        engine.processes << process
+        engine.process_links.link(process.address, target.address)
+        instructions = [InstructionWrapper.new(CodeWrapper::UNLINK)]
+        process.stack.push(ValueWrapper.new(target.address.to_i64))
+        engine.execute(process, instructions[0])
+        engine.process_links.linked?(process.address, target.address).should be_false
+        process.stack.last.to_b.should be_true
+      end
+    end
+
+    describe "MONITOR" do
+      it "monitors another process" do
+        engine = TestHelpers.create_engine
+        target = TestHelpers.create_process(engine, [] of InstructionWrapper)
+        engine.processes << target
+        instructions = [InstructionWrapper.new(CodeWrapper::MONITOR)]
+        process = TestHelpers.create_process_with_stack(engine, instructions, [ValueWrapper.new(target.address.to_i64)])
+        engine.execute(process, instructions[0])
+        ref_id = process.stack.last.to_i64.to_u64
+        engine.process_links.get_monitors(process.address).map(&.id).should contain(ref_id)
+      end
+    end
+
+    describe "DEMONITOR" do
+      it "demonitors a reference" do
+        engine = TestHelpers.create_engine
+        target = TestHelpers.create_process(engine, [] of InstructionWrapper)
+        process = TestHelpers.create_process(engine, [] of InstructionWrapper)
+        engine.processes << target
+        engine.processes << process
+        ref = engine.process_links.monitor(process.address, target.address)
+        instructions = [InstructionWrapper.new(CodeWrapper::DEMONITOR)]
+        process.stack.push(ValueWrapper.new(ref.id.to_i64))
+        engine.execute(process, instructions[0])
+        process.stack.last.to_b.should be_true
+        engine.process_links.get_monitors(process.address).should be_empty
+      end
+    end
+
+    describe "TRAP_EXIT" do
+      it "enables/disables trap_exit" do
+        engine = TestHelpers.create_engine
+        instructions = [InstructionWrapper.new(CodeWrapper::TRAP_EXIT)]
+        process = TestHelpers.create_process_with_stack(engine, instructions, [ValueWrapper.new(true)])
+        engine.execute(process, instructions[0])
+        engine.process_links.traps_exit?(process.address).should be_true
+        process.stack.last.to_b.should be_false # old value
+      end
+    end
+
+    describe "EXIT_SELF" do
+      it "exits current process" do
+        engine = TestHelpers.create_engine
+        instructions = [InstructionWrapper.new(CodeWrapper::EXIT_SELF)]
+        process = TestHelpers.create_process_with_stack(engine, instructions, [ValueWrapper.new("normal")])
+        engine.execute(process, instructions[0])
+        process.state.should eq(ProcessWrapper::State::DEAD)
+        process.exit_reason.not_nil!.type.should eq(ExitReasonWrapper::Type::Normal)
+      end
+    end
+
+    describe "SPAWN_LINK" do
+      it "spawns and links new process" do
+        engine = TestHelpers.create_engine
+        instructions = [InstructionWrapper.new(CodeWrapper::SPAWN_LINK)]
+        process = TestHelpers.create_process(engine, instructions)
+        engine.execute(process, instructions[0])
+        child_address = process.stack.last.to_i64.to_u64
+        child = engine.processes.find { |p| p.address == child_address }
+        child.should_not be_nil
+        engine.process_links.linked?(process.address, child_address).should be_true
+      end
+    end
+
+    describe "SPAWN_MONITOR" do
+      it "spawns and monitors new process" do
+        engine = TestHelpers.create_engine
+        instructions = [InstructionWrapper.new(CodeWrapper::SPAWN_MONITOR)]
+        process = TestHelpers.create_process(engine, instructions)
+        engine.execute(process, instructions[0])
+        process.stack.size.should eq(2)
+        ref_id = process.stack.pop.to_i64.to_u64
+        child_address = process.stack.last.to_i64.to_u64
+        engine.process_links.get_monitors(process.address).map(&.id).should contain(ref_id)
+      end
+    end
+
+    describe "IS_ALIVE" do
+      it "checks if process is alive" do
+        engine = TestHelpers.create_engine
+        target = TestHelpers.create_process(engine, [] of InstructionWrapper)
+        engine.processes << target
+        instructions = [InstructionWrapper.new(CodeWrapper::IS_ALIVE)]
+        process = TestHelpers.create_process_with_stack(engine, instructions, [ValueWrapper.new(target.address.to_i64)])
+        engine.execute(process, instructions[0])
+        process.stack.last.to_b.should be_true
+        target.state = ProcessWrapper::State::DEAD
+        process.stack.pop
+        process.stack.push(ValueWrapper.new(target.address.to_i64))
+        engine.execute(process, instructions[0])
+        process.stack.last.to_b.should be_false
+      end
+    end
+
+    describe "PROCESS_INFO" do
+      it "gets process info" do
+        engine = TestHelpers.create_engine
+        target = TestHelpers.create_process(engine, [] of InstructionWrapper)
+        engine.processes << target
+        instructions = [InstructionWrapper.new(CodeWrapper::PROCESS_INFO)]
+        process = TestHelpers.create_process_with_stack(engine, instructions, [ValueWrapper.new(target.address.to_i64)])
+        engine.execute(process, instructions[0])
+        info = process.stack.last.to_h
+        info["address"].to_i64.to_u64.should eq(target.address)
+        info["state"].to_s.should eq("ALIVE")
+      end
+
+      it "returns null for non-existent process" do
+        engine = TestHelpers.create_engine
+        instructions = [InstructionWrapper.new(CodeWrapper::PROCESS_INFO)]
+        process = TestHelpers.create_process_with_stack(engine, instructions, [ValueWrapper.new(9999_i64)])
+        engine.execute(process, instructions[0])
+        process.stack.last.is_null?.should be_true
+      end
+    end
+  end
+
+  describe "process flags" do
+    describe "SET_FLAG and GET_FLAG" do
+      it "sets and gets flag" do
+        engine = TestHelpers.create_engine
+        instructions = [
+          InstructionWrapper.new(CodeWrapper::PUSH_STRING, ValueWrapper.new("my_flag")),
+          InstructionWrapper.new(CodeWrapper::PUSH_INTEGER, ValueWrapper.new(42_i64)),
+          InstructionWrapper.new(CodeWrapper::SET_FLAG),
+          InstructionWrapper.new(CodeWrapper::PUSH_STRING, ValueWrapper.new("my_flag")),
+          InstructionWrapper.new(CodeWrapper::GET_FLAG),
+        ]
+        process = TestHelpers.create_process(engine, instructions)
+        instructions.each { |inst| engine.execute(process, inst) }
+        process.stack.last.to_i64.should eq(42_i64)
+      end
+
+      it "returns null for undefined flag" do
+        engine = TestHelpers.create_engine
+        instructions = [
+          InstructionWrapper.new(CodeWrapper::PUSH_STRING, ValueWrapper.new("undefined")),
+          InstructionWrapper.new(CodeWrapper::GET_FLAG),
+        ]
+        process = TestHelpers.create_process(engine, instructions)
+        instructions.each { |inst| engine.execute(process, inst) }
+        process.stack.last.is_null?.should be_true
       end
     end
   end

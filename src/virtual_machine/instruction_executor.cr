@@ -94,6 +94,24 @@ module Jelly
           when Code::READ_LINE  then execute_read_line(process)
             # Error handling
           when Code::THROW then execute_throw(process)
+            # Fault tolerance
+          when Code::LINK          then execute_link(process)
+          when Code::UNLINK        then execute_unlink(process)
+          when Code::MONITOR       then execute_monitor(process)
+          when Code::DEMONITOR     then execute_demonitor(process)
+          when Code::TRAP_EXIT     then execute_trap_exit(process)
+          when Code::EXIT          then execute_exit(process)
+          when Code::EXIT_SELF     then execute_exit_self(process)
+          when Code::SPAWN_LINK    then execute_spawn_link(process)
+          when Code::SPAWN_MONITOR then execute_spawn_monitor(process)
+          when Code::IS_ALIVE      then execute_is_alive(process)
+          when Code::PROCESS_INFO  then execute_process_info(process)
+          when Code::TRY_CATCH     then execute_try_catch(process, instruction)
+          when Code::END_TRY       then execute_end_try(process)
+          when Code::CATCH         then execute_catch(process)
+          when Code::RETHROW       then execute_rethrow(process)
+          when Code::SET_FLAG      then execute_set_flag(process)
+          when Code::GET_FLAG      then execute_get_flag(process)
           else
             if handler = @engine.custom_handlers[instruction.code]?
               handler.call(process, instruction)
@@ -101,14 +119,14 @@ module Jelly
               raise InvalidInstructionException.new("Unknown instruction: #{instruction.code}")
             end
           end
-        rescue ex : EmulationException
-          Log.error { "Process <#{process.address}>: #{ex.message}" }
-          process.state = Process::State::DEAD
-          Value.new(ex)
-        rescue ex : Exception
-          Log.error { "Process <#{process.address}>: Unhandled error: #{ex.message}" }
-          process.state = Process::State::DEAD
-          Value.new(ex)
+        rescue ex : EmulationException | Exception
+          if handle_exception(process, ex)
+            Value.new
+          else
+            Log.error { "Process <#{process.address}>: #{ex.class.name == "EmulationException" ? ex.message : "Unhandled error: #{ex.message}"}" }
+            process.state = Process::State::DEAD
+            Value.new(ex)
+          end
         end
       end
 
@@ -1227,6 +1245,426 @@ module Jelly
         check_stack_size(process, 1, "THROW")
         error_value = process.stack.pop
         raise EmulationException.new("THROW: #{error_value.to_s}")
+      end
+
+      # Link current process with another
+      private def execute_link(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "LINK")
+
+        other_pid_val = process.stack.pop
+        unless other_pid_val.is_integer?
+          raise TypeMismatchException.new("LINK requires an Integer process address")
+        end
+
+        other_pid = other_pid_val.to_i64.to_u64
+
+        # Check if target process exists
+        target = @engine.processes.find { |p| p.address == other_pid && p.state != Process::State::DEAD }
+        unless target
+          raise InvalidAddressException.new("LINK to invalid or dead process #{other_pid}")
+        end
+
+        @engine.process_links.link(process.address, other_pid)
+        Log.debug { "Process <#{process.address}> linked with <#{other_pid}>" }
+
+        Value.new(true)
+      end
+
+      # Remove link between current process and another
+      private def execute_unlink(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "UNLINK")
+
+        other_pid_val = process.stack.pop
+        unless other_pid_val.is_integer?
+          raise TypeMismatchException.new("UNLINK requires an Integer process address")
+        end
+
+        other_pid = other_pid_val.to_i64.to_u64
+        result = @engine.process_links.unlink(process.address, other_pid)
+
+        Log.debug { "Process <#{process.address}> unlinked from <#{other_pid}>: #{result}" }
+
+        check_stack_capacity(process)
+        process.stack.push(Value.new(result))
+        Value.new(result)
+      end
+
+      # Monitor another process
+      private def execute_monitor(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "MONITOR")
+
+        target_pid_val = process.stack.pop
+        unless target_pid_val.is_integer?
+          raise TypeMismatchException.new("MONITOR requires an Integer process address")
+        end
+
+        target_pid = target_pid_val.to_i64.to_u64
+
+        # Check if target exists
+        target = @engine.processes.find { |p| p.address == target_pid }
+
+        if target && target.state != Process::State::DEAD
+          # Create monitor
+          ref = @engine.process_links.monitor(process.address, target_pid)
+
+          check_stack_capacity(process)
+          process.stack.push(Value.new(ref.id.to_i64))
+
+          Log.debug { "Process <#{process.address}> monitoring <#{target_pid}> (ref: #{ref.id})" }
+          Value.new(ref.id.to_i64)
+        else
+          # Target doesn't exist - immediately send DOWN message
+          ref = MonitorRef.new(process.address, target_pid)
+          down = DownMessage.new(ref, target_pid, ExitReason.noproc)
+
+          message = Message.new(target_pid, down.to_value)
+          process.mailbox.push(message)
+
+          check_stack_capacity(process)
+          process.stack.push(Value.new(ref.id.to_i64))
+
+          Log.debug { "Process <#{process.address}> monitoring dead process <#{target_pid}> - DOWN sent" }
+          Value.new(ref.id.to_i64)
+        end
+      end
+
+      # Stop monitoring a process
+      private def execute_demonitor(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "DEMONITOR")
+
+        ref_id_val = process.stack.pop
+        unless ref_id_val.is_integer?
+          raise TypeMismatchException.new("DEMONITOR requires an Integer reference")
+        end
+
+        ref_id = ref_id_val.to_i64.to_u64
+
+        # Find the monitor ref
+        monitors = @engine.process_links.get_monitors(process.address)
+        ref = monitors.find { |r| r.id == ref_id }
+
+        result = if ref
+                   @engine.process_links.demonitor(ref)
+                 else
+                   false
+                 end
+
+        check_stack_capacity(process)
+        process.stack.push(Value.new(result))
+        Value.new(result)
+      end
+
+      # Enable/disable exit trapping
+      private def execute_trap_exit(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "TRAP_EXIT")
+
+        enable_val = process.stack.pop
+        enable = enable_val.to_b
+
+        old_value = @engine.process_links.traps_exit?(process.address)
+        @engine.process_links.trap_exit(process.address, enable)
+
+        check_stack_capacity(process)
+        process.stack.push(Value.new(old_value))
+
+        Log.debug { "Process <#{process.address}> trap_exit: #{old_value} -> #{enable}" }
+        Value.new(old_value)
+      end
+
+      # Send exit signal to another process
+      private def execute_exit(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "EXIT")
+
+        reason_val = process.stack.pop
+        target_val = process.stack.pop
+
+        unless target_val.is_integer?
+          raise TypeMismatchException.new("EXIT requires an Integer process address")
+        end
+
+        target_pid = target_val.to_i64.to_u64
+        reason_str = reason_val.to_s
+
+        reason = if reason_str == "kill"
+                   ExitReason.kill
+                 elsif reason_str == "normal"
+                   ExitReason.normal
+                 else
+                   ExitReason.custom(reason_str)
+                 end
+
+        @engine.fault_handler.exit_process(process.address, target_pid, reason)
+
+        Log.debug { "Process <#{process.address}> sent exit '#{reason}' to <#{target_pid}>" }
+        Value.new(true)
+      end
+
+      # Exit current process
+      private def execute_exit_self(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "EXIT_SELF")
+
+        reason_val = process.stack.pop
+        reason_str = reason_val.to_s
+
+        reason = if reason_str == "normal"
+                   ExitReason.normal
+                 elsif reason_str == "shutdown"
+                   ExitReason.shutdown
+                 else
+                   ExitReason.custom(reason_str)
+                 end
+
+        process.state = Process::State::DEAD
+        process.exit_reason = reason
+
+        @engine.fault_handler.handle_exit(process, reason)
+
+        Log.debug { "Process <#{process.address}> exited: #{reason}" }
+        Value.new
+      end
+
+      # Spawn and link atomically
+      private def execute_spawn_link(process : Process) : Value
+        process.counter += 1
+
+        # Create new process
+        new_process = @engine.process_manager.create_process(instructions: process.instructions)
+        @engine.processes << new_process
+
+        # Atomically link
+        @engine.process_links.link(process.address, new_process.address)
+
+        check_stack_capacity(process)
+        process.stack.push(Value.new(new_process.address.to_i64))
+
+        Log.debug { "Process <#{process.address}> spawn_linked <#{new_process.address}>" }
+        Value.new(new_process.address.to_i64)
+      end
+
+      # Spawn and monitor atomically
+      private def execute_spawn_monitor(process : Process) : Value
+        process.counter += 1
+
+        # Create new process
+        new_process = @engine.process_manager.create_process(instructions: process.instructions)
+        @engine.processes << new_process
+
+        # Atomically monitor
+        ref = @engine.process_links.monitor(process.address, new_process.address)
+
+        check_stack_capacity(process)
+        process.stack.push(Value.new(new_process.address.to_i64))
+        process.stack.push(Value.new(ref.id.to_i64))
+
+        Log.debug { "Process <#{process.address}> spawn_monitored <#{new_process.address}> (ref: #{ref.id})" }
+        Value.new(new_process.address.to_i64)
+      end
+
+      # Check if a process is alive
+      private def execute_is_alive(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "IS_ALIVE")
+
+        pid_val = process.stack.pop
+        unless pid_val.is_integer?
+          raise TypeMismatchException.new("IS_ALIVE requires an Integer process address")
+        end
+
+        pid = pid_val.to_i64.to_u64
+        target = @engine.processes.find { |p| p.address == pid }
+
+        alive = target && target.state != Process::State::DEAD
+
+        check_stack_capacity(process)
+        process.stack.push(Value.new(alive))
+        Value.new(alive)
+      end
+
+      # Get information about a process
+      private def execute_process_info(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "PROCESS_INFO")
+
+        pid_val = process.stack.pop
+        unless pid_val.is_integer?
+          raise TypeMismatchException.new("PROCESS_INFO requires an Integer process address")
+        end
+
+        pid = pid_val.to_i64.to_u64
+        target = @engine.processes.find { |p| p.address == pid }
+
+        if target
+          info = Hash(String, Value).new
+          info["address"] = Value.new(target.address.to_i64)
+          info["state"] = Value.new(target.state.to_s)
+          info["registered_name"] = target.registered_name ? Value.new(target.registered_name.not_nil!) : Value.new
+          info["mailbox_size"] = Value.new(target.mailbox.size.to_i64)
+          info["stack_size"] = Value.new(target.stack.size.to_i64)
+          info["counter"] = Value.new(target.counter.to_i64)
+          info["links"] = Value.new(@engine.process_links.get_links(pid).map { |l| Value.new(l.to_i64) })
+          info["trap_exit"] = Value.new(@engine.process_links.traps_exit?(pid))
+
+          check_stack_capacity(process)
+          process.stack.push(Value.new(info))
+          Value.new(info)
+        else
+          check_stack_capacity(process)
+          process.stack.push(Value.new)
+          Value.new
+        end
+      end
+
+      # Begin a try-catch block
+      private def execute_try_catch(process : Process, instruction : Instruction) : Value
+        process.counter += 1
+
+        unless instruction.value.is_integer?
+          raise TypeMismatchException.new("TRY_CATCH requires an Integer catch offset")
+        end
+
+        catch_offset = instruction.value.to_i64
+        catch_address = (process.counter.to_i64 + catch_offset).to_u64
+
+        handler = ExceptionHandler.new(
+          catch_address,
+          process.stack.size,
+          process.call_stack.size
+        )
+
+        process.exception_handlers.push(handler)
+
+        Log.debug { "Process <#{process.address}> entered try block (catch at #{catch_address})" }
+        Value.new
+      end
+
+      # End a try block without exception
+      private def execute_end_try(process : Process) : Value
+        process.counter += 1
+
+        if process.exception_handlers.empty?
+          raise EmulationException.new("END_TRY without matching TRY_CATCH")
+        end
+
+        process.exception_handlers.pop
+
+        Log.debug { "Process <#{process.address}> exited try block normally" }
+        Value.new
+      end
+
+      # Entry point for exception handler
+      private def execute_catch(process : Process) : Value
+        process.counter += 1
+        # Exception value is already on the stack from handle_exception
+        # Just continue execution
+        Log.debug { "Process <#{process.address}> in catch block" }
+        Value.new
+      end
+
+      # Rethrow current exception
+      private def execute_rethrow(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "RETHROW")
+
+        exception_val = process.stack.pop
+
+        # Try to jump to next exception handler
+        if handler = process.exception_handlers.pop?
+          # Restore state and jump to handler
+          while process.stack.size > handler.stack_size
+            process.stack.pop
+          end
+          while process.call_stack.size > handler.call_stack_size
+            process.call_stack.pop
+          end
+
+          process.stack.push(exception_val)
+          process.counter = handler.catch_address
+
+          Log.debug { "Process <#{process.address}> rethrew to catch at #{handler.catch_address}" }
+        else
+          # No handler - process dies
+          raise EmulationException.new("Unhandled exception: #{exception_val.to_s}")
+        end
+
+        Value.new
+      end
+
+      # Set a process flag
+      private def execute_set_flag(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "SET_FLAG")
+
+        value = process.stack.pop
+        flag_name_val = process.stack.pop
+
+        unless flag_name_val.is_string?
+          raise TypeMismatchException.new("SET_FLAG requires a String flag name")
+        end
+
+        flag_name = flag_name_val.to_s
+        old_value = process.flags[flag_name]?
+        process.flags[flag_name] = value
+
+        check_stack_capacity(process)
+        process.stack.push(old_value || Value.new)
+
+        Log.debug { "Process <#{process.address}> set flag '#{flag_name}'" }
+        old_value || Value.new
+      end
+
+      # Get a process flag
+      private def execute_get_flag(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "GET_FLAG")
+
+        flag_name_val = process.stack.pop
+
+        unless flag_name_val.is_string?
+          raise TypeMismatchException.new("GET_FLAG requires a String flag name")
+        end
+
+        flag_name = flag_name_val.to_s
+        value = process.flags[flag_name]? || Value.new
+
+        check_stack_capacity(process)
+        process.stack.push(value)
+
+        value
+      end
+
+      # Handle an exception in the current process
+      def handle_exception(process : Process, exception : Exception) : Bool
+        if handler = process.exception_handlers.pop?
+          # Restore state
+          while process.stack.size > handler.stack_size
+            process.stack.pop
+          end
+          while process.call_stack.size > handler.call_stack_size
+            process.call_stack.pop
+          end
+
+          # Push exception info
+          exception_val = Value.new({
+            "type"    => Value.new("exception"),
+            "message" => Value.new(exception.message || "unknown"),
+          } of String => Value)
+
+          process.stack.push(exception_val)
+          process.counter = handler.catch_address
+          process.state = Process::State::ALIVE
+
+          Log.debug { "Process <#{process.address}> caught exception at #{handler.catch_address}" }
+          true
+        else
+          false
+        end
       end
 
       # Helper method to check stack size

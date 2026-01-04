@@ -8,6 +8,10 @@ module Jelly
 
       def initialize(@code : Code, @value : Value = Value.new(nil))
       end
+
+      def clone : Instruction
+        Instruction.new(@code, @value.clone)
+      end
     end
   end
 end
