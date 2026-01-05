@@ -1,5 +1,6 @@
 require "log"
 require "json"
+require "socket"
 require "./virtual_machine/**"
 
 module Jelly

@@ -3,6 +3,10 @@ module Jelly
     class InstructionExecutor
       Log = ::Log.for(self)
 
+      # TCP socket management - handles for user code
+      @next_socket_id : UInt64 = 1u64
+      @sockets : Hash(UInt64, TCPSocket) = Hash(UInt64, TCPSocket).new
+
       def initialize(@engine : Engine)
       end
 
@@ -91,8 +95,12 @@ module Jelly
           when Code::ARRAY_POP    then execute_array_pop(process)
           when Code::ARRAY_LENGTH then execute_array_length(process)
             # I/O
-          when Code::PRINT_LINE then execute_print_line(process)
-          when Code::READ_LINE  then execute_read_line(process)
+          when Code::PRINT_LINE  then execute_print_line(process)
+          when Code::READ_LINE   then execute_read_line(process)
+          when Code::TCP_CONNECT then execute_tcp_connect(process)
+          when Code::TCP_SEND    then execute_tcp_send(process)
+          when Code::TCP_RECEIVE then execute_tcp_receive(process)
+          when Code::TCP_CLOSE   then execute_tcp_close(process)
             # Error handling
           when Code::THROW then execute_throw(process)
             # Fault tolerance
@@ -565,7 +573,7 @@ module Jelly
       # Load local variable onto stack
       private def execute_load_local(process : Process, instruction : Instruction) : Value
         process.counter += 1
-        unless instruction.value.is_unsigned_integer?
+        unless instruction.value.is_integer?
           raise TypeMismatchException.new("LOAD_LOCAL requires an integer index")
         end
         index = instruction.value.to_i64
@@ -581,7 +589,7 @@ module Jelly
       # Store top of stack into local variable
       private def execute_store_local(process : Process, instruction : Instruction) : Value
         process.counter += 1
-        unless instruction.value.is_unsigned_integer?
+        unless instruction.value.is_integer?
           raise TypeMismatchException.new("STORE_LOCAL requires an integer index")
         end
         check_stack_size(process, 1, "STORE_LOCAL")
@@ -697,6 +705,142 @@ module Jelly
         check_stack_capacity(process)
         line = gets || ""
         result = Value.new(line.chomp)
+        process.stack.push(result)
+        result
+      end
+
+      # Connect to a TCP socket
+      private def execute_tcp_connect(process : Process) : Value
+        process.counter += 1
+
+        port_value = process.stack.pop
+        host_value = process.stack.pop
+
+        unless host_value.is_string? && port_value.is_integer?
+          raise TypeMismatchException.new("TCP_CONNECT requires host (string) and port (integer)")
+        end
+
+        host = host_value.to_s
+        port = port_value.to_i64.to_i32
+
+        begin
+          socket = TCPSocket.new(host, port)
+          socket_id = @next_socket_id
+          @next_socket_id += 1
+          @sockets[socket_id] = socket
+
+          result = Value.new(socket_id.to_i64)
+          check_stack_capacity(process)
+          process.stack.push(result)
+          result
+        rescue ex
+          Log.warn { "TCP_CONNECT failed: #{ex.message}" }
+          result = Value.new # null on failure
+          check_stack_capacity(process)
+          process.stack.push(result)
+          result
+        end
+      end
+
+      # Send data to a TCP socket
+      private def execute_tcp_send(process : Process) : Value
+        process.counter += 1
+
+        data_val = process.stack.pop
+        socket_id_val = process.stack.pop
+
+        unless socket_id_val.is_integer?
+          raise TypeMismatchException.new("TCP_SEND requires socket_id (integer) and data (string or bytes)")
+        end
+
+        socket_id = socket_id_val.to_i64.to_u64
+        socket = @sockets[socket_id]?
+        unless socket
+          raise EmulationException.new("Invalid socket ID: #{socket_id}")
+        end
+
+        # Accept either String or Slice(UInt8)
+        slice : Slice(UInt8) = if data_val.is_string?
+          data_val.to_s.to_slice
+        elsif data_val.is_binary?
+          data_val.to_binary
+        else
+          raise TypeMismatchException.new("TCP_SEND data must be String or Bytes")
+        end
+
+        begin
+          socket.write(slice) # This blocks until ALL bytes are sent or error
+          bytes_written = slice.size.to_i64
+        rescue ex
+          Log.warn { "Process <#{process.address}> TCP send failed: #{ex.message}" }
+          bytes_written = -1_i64 # or -1, depending on your convention
+        end
+
+        Log.debug { "Process <#{process.address}> sent #{bytes_written} bytes on socket #{socket_id}" }
+
+        result = Value.new(bytes_written)
+        check_stack_capacity(process)
+        process.stack.push(result)
+        result
+      end
+
+      # Receive data from a TCP socket
+      private def execute_tcp_receive(process : Process) : Value
+        process.counter += 1
+
+        max_bytes_value = process.stack.pop
+        socket_id_value = process.stack.pop
+
+        unless socket_id_value.is_integer? && max_bytes_value.is_integer?
+          raise TypeMismatchException.new("TCP_RECEIVE requires socket_id (int) and max_bytes (int)")
+        end
+
+        socket_id = socket_id_value.to_i64.to_u64
+        max_bytes = max_bytes_value.to_i64.to_i32
+
+        raise EmulationException.new("TCP_RECEIVE max_bytes must be > 0") if max_bytes <= 0
+
+        socket = @sockets[socket_id]?
+        unless socket
+          raise EmulationException.new("Invalid socket ID: #{socket_id}")
+        end
+
+        buffer = Slice(UInt8).new(max_bytes)
+        bytes_read = socket.read(buffer)
+
+        received_data = buffer[0, bytes_read]
+
+        result = Value.new(received_data)
+
+        Log.debug { "Process <#{process.address}> received #{bytes_read} bytes on socket #{socket_id}" }
+
+        check_stack_capacity(process)
+        process.stack.push(result)
+        result
+      end
+
+      # Close the TCP socket
+      private def execute_tcp_close(process : Process) : Value
+        process.counter += 1
+
+        socket_id_value = process.stack.pop
+
+        unless socket_id_value.is_integer?
+          raise TypeMismatchException.new("TCP_CLOSE requires socket_id (integer)")
+        end
+
+        socket_id = socket_id_value.to_i64.to_u64
+
+        if socket = @sockets.delete(socket_id)
+          socket.close
+          result = Value.new(true)
+        else
+          result = Value.new(false)
+        end
+
+        Log.debug { "Process <#{process.address}> closed socket #{socket_id}" }
+
+        check_stack_capacity(process)
         process.stack.push(result)
         result
       end
@@ -897,25 +1041,32 @@ module Jelly
       # Receive a message from the mailbox
       private def execute_receive(process : Process) : Value
         process.counter += 1
+
         if process.mailbox.empty?
           process.state = Process::State::WAITING
           process.waiting_for = nil
           process.waiting_since = Time.utc
           process.waiting_timeout = nil
           process.counter -= 1 # Re-execute RECEIVE when woken up
+
           Log.debug { "Process <#{process.address}> waiting for any message" }
           return Value.new
         else
           message = process.mailbox.shift
           return Value.new unless message
+
           check_stack_capacity(process)
+
           process.stack.push(message.value)
+
           if message.needs_ack && @engine.configuration.enable_message_acks
             ack = MessageAcknowledgment.new(message.id, process.address, :processed)
             target = @engine.processes.find { |p| p.address == message.sender }
             target.mailbox.add_ack(ack) if target
           end
+
           Log.debug { "Process <#{process.address}> received message: #{message.value.inspect}" }
+
           @engine.check_blocked_sends(process)
           message.value
         end
@@ -971,35 +1122,47 @@ module Jelly
       # Receive a message with a timeout
       private def execute_receive_timeout(process : Process, instruction : Instruction) : Value
         process.counter += 1
+
         unless instruction.value.type == "Tuple(Value, Float64)"
           raise TypeMismatchException.new("RECEIVE_TIMEOUT requires a tuple and a float")
         end
+
         pattern, timeout_seconds = Box(Tuple(Value, Float64)).unbox(instruction.value.pointer)
         timeout = timeout_seconds.seconds
         message = process.mailbox.select(pattern)
+
         if message
           check_stack_capacity(process)
+
           process.stack.push(message.value)
+
           if message.needs_ack && @engine.configuration.enable_message_acks
             ack = MessageAcknowledgment.new(message.id, process.address, :processed)
             target = @engine.processes.find { |p| p.address == message.sender }
             target.mailbox.add_ack(ack) if target
           end
+
           check_stack_capacity(process)
+
           process.stack.push(Value.new(true))
+
           Log.debug { "Process <#{process.address}> received message with timeout: #{message.value.inspect}" }
+
           @engine.check_blocked_sends(process)
           message.value
         else
           if timeout <= 0.seconds
             check_stack_capacity(process)
+
             process.stack.push(Value.new(false))
             return Value.new
           end
+
           process.state = Process::State::WAITING
           process.waiting_for = pattern
           process.waiting_since = Time.utc
           process.waiting_timeout = timeout
+
           Log.debug { "Process <#{process.address}> waiting with #{timeout} timeout" }
           Value.new
         end
@@ -1008,14 +1171,18 @@ module Jelly
       # Schedule a delayed message
       private def execute_send_after(process : Process, instruction : Instruction) : Value
         process.counter += 1
+
         unless instruction.value.type == "Tuple(UInt64, Value, Float64)"
           raise TypeMismatchException.new("SEND_AFTER requires an unsigned integer, a value and a float")
         end
+
         address, value, delay_seconds = Box(Tuple(UInt64, Value, Float64)).unbox(instruction.value.pointer)
         target = @engine.processes.find { |p| p.address == address && p.state != Process::State::DEAD }
+
         unless target
           raise InvalidAddressException.new("SEND_AFTER to invalid address #{address}")
         end
+
         @engine.schedule_delayed_message(process.address, address, value, delay_seconds)
         Value.new(true)
       end
@@ -1023,10 +1190,13 @@ module Jelly
       # Register a process with a name
       private def execute_register_process(process : Process, instruction : Instruction) : Value
         process.counter += 1
+
         unless instruction.value.type == "String"
           raise TypeMismatchException.new("REGISTER requires a string")
         end
+
         name = Box(String).unbox(instruction.value.pointer)
+
         if @engine.process_registry.register(name, process.address)
           process.registered_name = name
           Log.debug { "Process <#{process.address}> registered as '#{name}'" }
@@ -1040,16 +1210,21 @@ module Jelly
       # Look up a registered process by name
       private def execute_whereis_process(process : Process, instruction : Instruction) : Value
         process.counter += 1
+
         unless instruction.value.type == "String"
           raise TypeMismatchException.new("WHEREIS requires a string")
         end
+
         name = Box(String).unbox(instruction.value.pointer)
+
         if address = @engine.process_registry.lookup(name)
           check_stack_capacity(process)
+
           process.stack.push(Value.new(address.to_i64))
           Value.new(true)
         else
           check_stack_capacity(process)
+
           process.stack.push(Value.new)
           Value.new(false)
         end
@@ -1058,12 +1233,15 @@ module Jelly
       # Peek at the next message in the mailbox
       private def execute_peek_mailbox(process : Process) : Value
         process.counter += 1
+
         if message = process.mailbox.peek
           check_stack_capacity(process)
+
           process.stack.push(message.value.clone)
           Value.new(true)
         else
           check_stack_capacity(process)
+
           process.stack.push(Value.new)
           Value.new(false)
         end
@@ -1114,42 +1292,58 @@ module Jelly
       # Sleep for a number of seconds
       private def execute_sleep(process : Process) : Value
         process.counter += 1
+
         check_stack_size(process, 1, "SLEEP")
+
         duration = process.stack.pop
+
         unless duration.is_numeric?
           raise TypeMismatchException.new("SLEEP requires a numeric value in seconds")
         end
+
         seconds = duration.to_f64
+
         if seconds > 0
           sleep seconds.seconds
         end
+
         Value.new
       end
 
       # Create a new empty map
       private def execute_map_new(process : Process) : Value
         process.counter += 1
+
         check_stack_capacity(process)
+
         value = Value.new(Hash(String, Value).new)
         process.stack.push(value)
+
         value
       end
 
       # Get value from map by key
       private def execute_map_get(process : Process) : Value
         process.counter += 1
+
         check_stack_size(process, 2, "MAP_GET")
+
         key = process.stack.pop
-        map_val = process.stack.pop
-        unless map_val.is_map?
+        map_value = process.stack.pop
+
+        unless map_value.is_map?
           raise TypeMismatchException.new("MAP_GET requires a map")
         end
+
         unless key.is_string?
           raise TypeMismatchException.new("MAP_GET requires a string key")
         end
+
         check_stack_capacity(process)
-        map = map_val.to_h
+
+        map = map_value.to_h
         result = map[key.to_s]? || Value.new
+
         process.stack.push(result.clone)
         result
       end
@@ -1157,20 +1351,27 @@ module Jelly
       # Set value in map by key
       private def execute_map_set(process : Process) : Value
         process.counter += 1
+
         check_stack_size(process, 3, "MAP_SET")
+
         value = process.stack.pop
         key = process.stack.pop
-        map_val = process.stack.pop
-        unless map_val.is_map?
+        map_value = process.stack.pop
+
+        unless map_value.is_map?
           raise TypeMismatchException.new("MAP_SET requires a map")
         end
+
         unless key.is_string?
           raise TypeMismatchException.new("MAP_SET requires a string key")
         end
+
         check_stack_capacity(process)
-        map = map_val.to_h
+
+        map = map_value.to_h
         map[key.to_s] = value
         result = Value.new(map)
+
         process.stack.push(result)
         result
       end
@@ -1178,19 +1379,26 @@ module Jelly
       # Delete key from map
       private def execute_map_delete(process : Process) : Value
         process.counter += 1
+
         check_stack_size(process, 2, "MAP_DELETE")
+
         key = process.stack.pop
-        map_val = process.stack.pop
-        unless map_val.is_map?
+        map_value = process.stack.pop
+
+        unless map_value.is_map?
           raise TypeMismatchException.new("MAP_DELETE requires a map")
         end
+
         unless key.is_string?
           raise TypeMismatchException.new("MAP_DELETE requires a string key")
         end
+
         check_stack_capacity(process)
-        map = map_val.to_h
+
+        map = map_value.to_h
         map.delete(key.to_s)
         result = Value.new(map)
+
         process.stack.push(result)
         result
       end
@@ -1198,15 +1406,21 @@ module Jelly
       # Get all keys from map as array
       private def execute_map_keys(process : Process) : Value
         process.counter += 1
+
         check_stack_size(process, 1, "MAP_KEYS")
-        map_val = process.stack.pop
-        unless map_val.is_map?
+
+        map_value = process.stack.pop
+
+        unless map_value.is_map?
           raise TypeMismatchException.new("MAP_KEYS requires a map")
         end
+
         check_stack_capacity(process)
-        map = map_val.to_h
+
+        map = map_value.to_h
         keys = map.keys.map { |k| Value.new(k) }
         result = Value.new(keys)
+
         process.stack.push(result)
         result
       end
@@ -1214,52 +1428,71 @@ module Jelly
       # Get size of map
       private def execute_map_size(process : Process) : Value
         process.counter += 1
+
         check_stack_size(process, 1, "MAP_SIZE")
-        map_val = process.stack.pop
-        unless map_val.is_map?
+
+        map_value = process.stack.pop
+
+        unless map_value.is_map?
           raise TypeMismatchException.new("MAP_SIZE requires a map")
         end
+
         check_stack_capacity(process)
-        result = Value.new(map_val.to_h.size.to_u64)
+
+        result = Value.new(map_value.to_h.size.to_u64)
         process.stack.push(result)
+
         result
       end
 
       # Create a new array
       private def execute_array_new(process : Process, instruction : Instruction) : Value
         process.counter += 1
+
         check_stack_capacity(process)
+
         size = if instruction.value.is_integer?
                  instruction.value.to_i64
                else
                  0
                end
+
         arr = Array(Value).new(size) { Value.new }
         result = Value.new(arr)
         process.stack.push(result)
+
         result
       end
 
       # Get element from array by index
       private def execute_array_get(process : Process) : Value
         process.counter += 1
+
         check_stack_size(process, 2, "ARRAY_GET")
+
         index = process.stack.pop
-        arr_val = process.stack.pop
-        unless arr_val.is_array?
+        array_value = process.stack.pop
+
+        unless array_value.is_array?
           raise TypeMismatchException.new("ARRAY_GET requires an array")
         end
+
         unless index.is_integer?
           raise TypeMismatchException.new("ARRAY_GET requires an integer index")
         end
+
         check_stack_capacity(process)
-        arr = arr_val.to_a
+
+        arr = array_value.to_a
         idx = index.to_i64
+
         if idx < 0 || idx >= arr.size
           raise EmulationException.new("ARRAY_GET index out of bounds: #{idx}")
         end
+
         result = arr[idx].clone
         process.stack.push(result)
+
         result
       end
 
@@ -1269,15 +1502,15 @@ module Jelly
         check_stack_size(process, 3, "ARRAY_SET")
         value = process.stack.pop
         index = process.stack.pop
-        arr_val = process.stack.pop
-        unless arr_val.is_array?
+        array_value = process.stack.pop
+        unless array_value.is_array?
           raise TypeMismatchException.new("ARRAY_SET requires an array")
         end
         unless index.is_integer?
           raise TypeMismatchException.new("ARRAY_SET requires an integer index")
         end
         check_stack_capacity(process)
-        arr = arr_val.to_a
+        arr = array_value.to_a
         idx = index.to_i64
         if idx < 0 || idx >= arr.size
           raise EmulationException.new("ARRAY_SET index out of bounds: #{idx}")
@@ -1293,12 +1526,12 @@ module Jelly
         process.counter += 1
         check_stack_size(process, 2, "ARRAY_PUSH")
         value = process.stack.pop
-        arr_val = process.stack.pop
-        unless arr_val.is_array?
+        array_value = process.stack.pop
+        unless array_value.is_array?
           raise TypeMismatchException.new("ARRAY_PUSH requires an array")
         end
         check_stack_capacity(process)
-        arr = arr_val.to_a
+        arr = array_value.to_a
         arr.push(value)
         result = Value.new(arr)
         process.stack.push(result)
@@ -1309,11 +1542,11 @@ module Jelly
       private def execute_array_pop(process : Process) : Value
         process.counter += 1
         check_stack_size(process, 1, "ARRAY_POP")
-        arr_val = process.stack.pop
-        unless arr_val.is_array?
+        array_value = process.stack.pop
+        unless array_value.is_array?
           raise TypeMismatchException.new("ARRAY_POP requires an array")
         end
-        arr = arr_val.to_a
+        arr = array_value.to_a
         if arr.empty?
           raise EmulationException.new("ARRAY_POP on empty array")
         end
@@ -1329,12 +1562,12 @@ module Jelly
       private def execute_array_length(process : Process) : Value
         process.counter += 1
         check_stack_size(process, 1, "ARRAY_LENGTH")
-        arr_val = process.stack.pop
-        unless arr_val.is_array?
+        array_value = process.stack.pop
+        unless array_value.is_array?
           raise TypeMismatchException.new("ARRAY_LENGTH requires an array")
         end
         check_stack_capacity(process)
-        result = Value.new(arr_val.to_a.size.to_u64)
+        result = Value.new(array_value.to_a.size.to_u64)
         process.stack.push(result)
         result
       end
@@ -1352,12 +1585,12 @@ module Jelly
         process.counter += 1
         check_stack_size(process, 1, "LINK")
 
-        other_pid_val = process.stack.pop
-        unless other_pid_val.is_integer?
+        other_pid_value = process.stack.pop
+        unless other_pid_value.is_integer?
           raise TypeMismatchException.new("LINK requires an integer process address")
         end
 
-        other_pid = other_pid_val.to_i64.to_u64
+        other_pid = other_pid_value.to_i64.to_u64
 
         # Check if target process exists
         target = @engine.processes.find { |p| p.address == other_pid && p.state != Process::State::DEAD }
@@ -1376,12 +1609,12 @@ module Jelly
         process.counter += 1
         check_stack_size(process, 1, "UNLINK")
 
-        other_pid_val = process.stack.pop
-        unless other_pid_val.is_integer?
+        other_pid_value = process.stack.pop
+        unless other_pid_value.is_integer?
           raise TypeMismatchException.new("UNLINK requires an integer process address")
         end
 
-        other_pid = other_pid_val.to_i64.to_u64
+        other_pid = other_pid_value.to_i64.to_u64
         result = @engine.process_links.unlink(process.address, other_pid)
 
         Log.debug { "Process <#{process.address}> unlinked from <#{other_pid}>: #{result}" }
@@ -1396,12 +1629,12 @@ module Jelly
         process.counter += 1
         check_stack_size(process, 1, "MONITOR")
 
-        target_pid_val = process.stack.pop
-        unless target_pid_val.is_integer?
+        target_pid_value = process.stack.pop
+        unless target_pid_value.is_integer?
           raise TypeMismatchException.new("MONITOR requires an integer process address")
         end
 
-        target_pid = target_pid_val.to_i64.to_u64
+        target_pid = target_pid_value.to_i64.to_u64
 
         # Check if target exists
         target = @engine.processes.find { |p| p.address == target_pid }
@@ -1418,7 +1651,7 @@ module Jelly
         else
           # Target doesn't exist - immediately send DOWN message
           ref = MonitorRef.new(process.address, target_pid)
-          down = DownMessage.new(ref, target_pid, ExitReason.noproc)
+          down = DownMessage.new(ref, target_pid, ExitReason.invalid_process)
 
           message = Message.new(target_pid, down.to_value)
           process.mailbox.push(message)
@@ -1436,12 +1669,12 @@ module Jelly
         process.counter += 1
         check_stack_size(process, 1, "DEMONITOR")
 
-        ref_id_val = process.stack.pop
-        unless ref_id_val.is_integer?
+        ref_id_value = process.stack.pop
+        unless ref_id_value.is_integer?
           raise TypeMismatchException.new("DEMONITOR requires an integer reference")
         end
 
-        ref_id = ref_id_val.to_i64.to_u64
+        ref_id = ref_id_value.to_i64.to_u64
 
         # Find the monitor ref
         monitors = @engine.process_links.get_monitors(process.address)
@@ -1463,8 +1696,8 @@ module Jelly
         process.counter += 1
         check_stack_size(process, 1, "TRAP_EXIT")
 
-        enable_val = process.stack.pop
-        enable = enable_val.to_b
+        enable_value = process.stack.pop
+        enable = enable_value.to_b
 
         old_value = @engine.process_links.traps_exit?(process.address)
         @engine.process_links.trap_exit(process.address, enable)
@@ -1481,15 +1714,15 @@ module Jelly
         process.counter += 1
         check_stack_size(process, 2, "EXIT")
 
-        reason_val = process.stack.pop
-        target_val = process.stack.pop
+        reason_value = process.stack.pop
+        target_value = process.stack.pop
 
-        unless target_val.is_integer?
+        unless target_value.is_integer?
           raise TypeMismatchException.new("EXIT requires an integer process address")
         end
 
-        target_pid = target_val.to_i64.to_u64
-        reason_str = reason_val.to_s
+        target_pid = target_value.to_i64.to_u64
+        reason_str = reason_value.to_s
 
         reason = if reason_str == "kill"
                    ExitReason.kill
@@ -1510,8 +1743,8 @@ module Jelly
         process.counter += 1
         check_stack_size(process, 1, "EXIT_SELF")
 
-        reason_val = process.stack.pop
-        reason_str = reason_val.to_s
+        reason_value = process.stack.pop
+        reason_str = reason_value.to_s
 
         reason = if reason_str == "normal"
                    ExitReason.normal
@@ -1535,12 +1768,12 @@ module Jelly
         process.counter += 1
         check_stack_size(process, 1, "IS_ALIVE")
 
-        pid_val = process.stack.pop
-        unless pid_val.is_integer?
+        pid_value = process.stack.pop
+        unless pid_value.is_integer?
           raise TypeMismatchException.new("IS_ALIVE requires an integer process address")
         end
 
-        pid = pid_val.to_i64.to_u64
+        pid = pid_value.to_i64.to_u64
         target = @engine.processes.find { |p| p.address == pid }
 
         alive = target && target.state != Process::State::DEAD
@@ -1555,12 +1788,12 @@ module Jelly
         process.counter += 1
         check_stack_size(process, 1, "PROCESS_INFO")
 
-        pid_val = process.stack.pop
-        unless pid_val.is_integer?
+        pid_value = process.stack.pop
+        unless pid_value.is_integer?
           raise TypeMismatchException.new("PROCESS_INFO requires an integer process address")
         end
 
-        pid = pid_val.to_i64.to_u64
+        pid = pid_value.to_i64.to_u64
         target = @engine.processes.find { |p| p.address == pid }
 
         if target
@@ -1635,7 +1868,7 @@ module Jelly
         process.counter += 1
         check_stack_size(process, 1, "RETHROW")
 
-        exception_val = process.stack.pop
+        exception_value = process.stack.pop
 
         # Try to jump to next exception handler
         if handler = process.exception_handlers.pop?
@@ -1647,13 +1880,13 @@ module Jelly
             process.call_stack.pop
           end
 
-          process.stack.push(exception_val)
+          process.stack.push(exception_value)
           process.counter = handler.catch_address
 
           Log.debug { "Process <#{process.address}> rethrew to catch at #{handler.catch_address}" }
         else
           # No handler - process dies
-          raise EmulationException.new("Unhandled exception: #{exception_val.to_s}")
+          raise EmulationException.new("Unhandled exception: #{exception_value.to_s}")
         end
 
         Value.new
@@ -1665,13 +1898,13 @@ module Jelly
         check_stack_size(process, 2, "SET_FLAG")
 
         value = process.stack.pop
-        flag_name_val = process.stack.pop
+        flag_name_value = process.stack.pop
 
-        unless flag_name_val.is_string?
+        unless flag_name_value.is_string?
           raise TypeMismatchException.new("SET_FLAG requires a string flag name")
         end
 
-        flag_name = flag_name_val.to_s
+        flag_name = flag_name_value.to_s
         old_value = process.flags[flag_name]?
         process.flags[flag_name] = value
 
@@ -1687,13 +1920,13 @@ module Jelly
         process.counter += 1
         check_stack_size(process, 1, "GET_FLAG")
 
-        flag_name_val = process.stack.pop
+        flag_name_value = process.stack.pop
 
-        unless flag_name_val.is_string?
+        unless flag_name_value.is_string?
           raise TypeMismatchException.new("GET_FLAG requires a string flag name")
         end
 
-        flag_name = flag_name_val.to_s
+        flag_name = flag_name_value.to_s
         value = process.flags[flag_name]? || Value.new
 
         check_stack_capacity(process)
@@ -1714,12 +1947,12 @@ module Jelly
           end
 
           # Push exception info
-          exception_val = Value.new({
+          exception_value = Value.new({
             "type"    => Value.new("exception"),
             "message" => Value.new(exception.message || "unknown"),
           } of String => Value)
 
-          process.stack.push(exception_val)
+          process.stack.push(exception_value)
           process.counter = handler.catch_address
           process.state = Process::State::ALIVE
 

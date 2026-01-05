@@ -19,7 +19,7 @@ module Jelly
         @running = true
 
         spawn do
-          Log.debug { "FaultHandler started" }
+          Log.debug { "Monitoring for signal handlers" }
           while @running
             begin
               select
@@ -33,7 +33,7 @@ module Jelly
               break
             end
           end
-          Log.debug { "FaultHandler stopped" }
+          Log.debug { "Demonitoring the singal handlers" }
         end
       end
 
@@ -45,7 +45,7 @@ module Jelly
 
       # Handle a process exit - propagate signals to linked/monitoring processes
       def handle_exit(process : Process, reason : ExitReason)
-        Log.info { "FaultHandler: Process <#{process.address}> exited: #{reason}" }
+        Log.info { "FaultHandler: Process <#{process.address}> exited: #{reason.type}" }
 
         # Store exit reason on process
         process.exit_reason = reason

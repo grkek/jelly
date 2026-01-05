@@ -12,6 +12,7 @@ module Jelly
         Boolean
         Map
         Array
+        Binary
         Custom
       end
 
@@ -75,6 +76,15 @@ module Jelly
         @custom_type = nil
       end
 
+      # Create a binary value from Slice(UInt8)
+      def initialize(slice : Slice(UInt8))
+        owned = Slice(UInt8).new(slice.size)
+        owned.copy_from(slice)
+        @primitive_type = PrimitiveType::Binary
+        @pointer = Box.box(owned)
+        @custom_type = nil
+      end
+
       # Create a null value from nil
       def initialize(object : Nil)
         @primitive_type = PrimitiveType::Null
@@ -113,26 +123,17 @@ module Jelly
       # Returns the type as a string for backward compatibility
       def type : ::String
         case @primitive_type
-        when .null?
-          "Null"
-        when .integer?
-          "Integer"
-        when .unsigned_integer?
-          "UnsignedInteger"
-        when .float?
-          "Float"
-        when .string?
-          "String"
-        when .boolean?
-          "Boolean"
-        when .map?
-          "Map"
-        when .array?
-          "Array"
-        when .custom?
-          @custom_type || "Unknown"
-        else
-          "Unknown"
+        when .null?             then "Null"
+        when .integer?          then "Integer"
+        when .unsigned_integer? then "UnsignedInteger"
+        when .float?            then "Float"
+        when .string?           then "String"
+        when .boolean?          then "Boolean"
+        when .map?              then "Map"
+        when .array?            then "Array"
+        when .binary?           then "Binary"
+        when .custom?           then @custom_type || "Unknown"
+        else                         "Unknown"
         end
       end
 
@@ -171,6 +172,11 @@ module Jelly
         @primitive_type.map?
       end
 
+      # Check if value is binary
+      def is_binary? : Bool
+        @primitive_type.binary?
+      end
+
       # Check if value is null
       def is_null? : Bool
         @primitive_type.null?
@@ -194,14 +200,10 @@ module Jelly
       # Convert value to Int64
       def to_i64 : Int64
         case @primitive_type
-        when .integer?
-          Box(Int64).unbox(@pointer)
-        when .unsigned_integer?
-          Box(UInt64).unbox(@pointer).to_i64
-        when .float?
-          Box(Float64).unbox(@pointer).to_i64
-        when .boolean?
-          Box(Bool).unbox(@pointer) ? 1_i64 : 0_i64
+        when .integer?          then Box(Int64).unbox(@pointer)
+        when .unsigned_integer? then Box(UInt64).unbox(@pointer).to_i64
+        when .float?            then Box(Float64).unbox(@pointer).to_i64
+        when .boolean?          then Box(Bool).unbox(@pointer) ? 1_i64 : 0_i64
         else
           raise EmulationException.new("Cannot convert #{type} to integer")
         end
@@ -210,8 +212,7 @@ module Jelly
       # Convert value to UInt64
       def to_u64 : UInt64
         case @primitive_type
-        when .unsigned_integer?
-          Box(UInt64).unbox(@pointer)
+        when .unsigned_integer? then Box(UInt64).unbox(@pointer)
         when .integer?
           value = Box(Int64).unbox(@pointer)
           raise EmulationException.new("Cannot convert negative integer to unsigned integer") if value < 0
@@ -220,8 +221,7 @@ module Jelly
           value = Box(Float64).unbox(@pointer)
           raise EmulationException.new("Cannot convert negative float to unsigned integer") if value < 0
           value.to_u64
-        when .boolean?
-          Box(Bool).unbox(@pointer) ? 1_u64 : 0_u64
+        when .boolean? then Box(Bool).unbox(@pointer) ? 1_u64 : 0_u64
         else
           raise EmulationException.new("Cannot convert #{type} to unsigned integer")
         end
@@ -230,14 +230,10 @@ module Jelly
       # Convert value to Float64
       def to_f64 : Float64
         case @primitive_type
-        when .float?
-          Box(Float64).unbox(@pointer)
-        when .integer?
-          Box(Int64).unbox(@pointer).to_f64
-        when .unsigned_integer?
-          Box(UInt64).unbox(@pointer).to_f64
-        when .boolean?
-          Box(Bool).unbox(@pointer) ? 1.0 : 0.0
+        when .float?            then Box(Float64).unbox(@pointer)
+        when .integer?          then Box(Int64).unbox(@pointer).to_f64
+        when .unsigned_integer? then Box(UInt64).unbox(@pointer).to_f64
+        when .boolean?          then Box(Bool).unbox(@pointer) ? 1.0 : 0.0
         else
           raise EmulationException.new("Cannot convert #{type} to float")
         end
@@ -246,24 +242,20 @@ module Jelly
       # Convert value to String
       def to_s : ::String
         case @primitive_type
-        when .null?
-          "null"
-        when .integer?
-          Box(Int64).unbox(@pointer).to_s
-        when .unsigned_integer?
-          Box(UInt64).unbox(@pointer).to_s
-        when .float?
-          Box(Float64).unbox(@pointer).to_s
-        when .boolean?
-          Box(Bool).unbox(@pointer).to_s
-        when .string?
-          Box(::String).unbox(@pointer)
+        when .null?             then "null"
+        when .integer?          then Box(Int64).unbox(@pointer).to_s
+        when .unsigned_integer? then Box(UInt64).unbox(@pointer).to_s
+        when .float?            then Box(Float64).unbox(@pointer).to_s
+        when .boolean?          then Box(Bool).unbox(@pointer).to_s
+        when .string?           then Box(::String).unbox(@pointer)
         when .map?
           hash = Box(Hash(::String, Value)).unbox(@pointer)
           "{#{hash.map { |k, v| "#{k}: #{v.to_s}" }.join(", ")}}"
         when .array?
           arr = Box(::Array(Value)).unbox(@pointer)
           "[#{arr.map(&.to_s).join(", ")}]"
+        when .binary?
+          String.new(to_binary)
         when .custom?
           "<#{@custom_type}>"
         else
@@ -274,26 +266,17 @@ module Jelly
       # Convert value to Bool
       def to_b : Bool
         case @primitive_type
-        when .boolean?
-          Box(Bool).unbox(@pointer)
-        when .integer?
-          Box(Int64).unbox(@pointer) != 0_i64
-        when .unsigned_integer?
-          Box(UInt64).unbox(@pointer) != 0_u64
-        when .float?
-          Box(Float64).unbox(@pointer) != 0.0
-        when .string?
-          !Box(::String).unbox(@pointer).empty?
-        when .map?
-          !Box(Hash(::String, Value)).unbox(@pointer).empty?
-        when .array?
-          !Box(::Array(Value)).unbox(@pointer).empty?
-        when .null?
-          false
-        when .custom?
-          true
-        else
-          false
+        when .boolean?          then Box(Bool).unbox(@pointer)
+        when .integer?          then Box(Int64).unbox(@pointer) != 0_i64
+        when .unsigned_integer? then Box(UInt64).unbox(@pointer) != 0_u64
+        when .float?            then Box(Float64).unbox(@pointer) != 0.0
+        when .string?           then !Box(::String).unbox(@pointer).empty?
+        when .map?              then !Box(Hash(::String, Value)).unbox(@pointer).empty?
+        when .array?            then !Box(::Array(Value)).unbox(@pointer).empty?
+        when .binary?           then !to_binary.empty?
+        when .null?             then false
+        when .custom?           then true
+        else                         false
         end
       end
 
@@ -307,6 +290,12 @@ module Jelly
       def to_a : ::Array(Value)
         raise EmulationException.new("Cannot convert #{type} to array") unless @primitive_type.array?
         Box(::Array(Value)).unbox(@pointer)
+      end
+
+      # Convert value to Slice(UInt8)
+      def to_binary : Slice(UInt8)
+        raise EmulationException.new("Cannot convert #{type} to binary") unless is_binary?
+        Box(Slice(UInt8)).unbox(@pointer)
       end
 
       # Unbox as Tuple(UInt64, Value)
@@ -336,26 +325,19 @@ module Jelly
       # Create a deep copy of the value
       def clone : Value
         case @primitive_type
-        when .null?
-          Value.new
-        when .integer?
-          Value.new(to_i64)
-        when .unsigned_integer?
-          Value.new(to_u64)
-        when .float?
-          Value.new(to_f64)
-        when .string?
-          Value.new(Box(::String).unbox(@pointer).dup)
-        when .boolean?
-          Value.new(to_b)
+        when .null?             then Value.new
+        when .integer?          then Value.new(to_i64)
+        when .unsigned_integer? then Value.new(to_u64)
+        when .float?            then Value.new(to_f64)
+        when .string?           then Value.new(Box(::String).unbox(@pointer).dup)
+        when .boolean?          then Value.new(to_b)
         when .map?
           cloned_hash = Hash(::String, Value).new
           to_h.each { |k, v| cloned_hash[k] = v.clone }
           Value.new(cloned_hash)
-        when .array?
-          Value.new(to_a.map(&.clone))
-        when .custom?
-          self
+        when .array?  then Value.new(to_a.map(&.clone))
+        when .binary? then Value.new(to_binary) # constructor copies the slice
+        when .custom? then self
         else
           raise EmulationException.new("Cannot clone unsupported value type: #{type}")
         end
@@ -365,26 +347,18 @@ module Jelly
       def ==(other : Value) : Bool
         return false unless @primitive_type == other.primitive_type
         case @primitive_type
-        when .null?
-          true
-        when .integer?
-          to_i64 == other.to_i64
-        when .unsigned_integer?
-          to_u64 == other.to_u64
-        when .float?
-          to_f64 == other.to_f64
-        when .string?
-          to_s == other.to_s
-        when .boolean?
-          to_b == other.to_b
-        when .map?
-          to_h == other.to_h
-        when .array?
-          to_a == other.to_a
+        when .null?             then true
+        when .integer?          then to_i64 == other.to_i64
+        when .unsigned_integer? then to_u64 == other.to_u64
+        when .float?            then to_f64 == other.to_f64
+        when .string?           then to_s == other.to_s
+        when .boolean?          then to_b == other.to_b
+        when .map?              then to_h == other.to_h
+        when .array?            then to_a == other.to_a
+        when .binary?           then to_binary == other.to_binary
         when .custom?
           @custom_type == other.custom_type && @pointer == other.pointer
-        else
-          false
+        else false
         end
       end
 

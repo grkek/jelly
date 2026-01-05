@@ -251,6 +251,20 @@ module Jelly
       READ_LINE # Read line from stdin
       # Stack: [] → [string]
 
+      TCP_CONNECT # Open a TCP connection to host:port
+      # Stack: [host, port] → [socket_id or null]
+
+      TCP_SEND # Send data over a TCP socket
+      # Stack: [socket_id, data] → [bytes_sent]
+      #   data can be String OR Bytes (Slice(UInt8))
+
+      TCP_RECEIVE # Receive data from a TCP socket (up to max_bytes)
+      # Stack: [socket_id, max_bytes] → [received_bytes]
+      #   Returns a Bytes value (Slice(UInt8)) containing raw received data
+
+      TCP_CLOSE # Close a TCP socket
+      # Stack: [socket_id] → [bool]
+
       # Error handling
 
       THROW # Raise an exception

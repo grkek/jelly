@@ -4,13 +4,13 @@ module Jelly
     # Similar to Erlang's exit reasons
     class ExitReason
       enum Type
-        Normal    # Clean shutdown
-        Kill      # Forcefully killed (untrappable)
-        Shutdown  # Requested shutdown (trappable)
-        Exception # Crashed with exception
-        Timeout   # Timed out waiting
-        NoProc    # Target process doesn't exist
-        Custom    # User-defined reason
+        Normal         # Clean shutdown
+        Kill           # Forcefully killed (untrappable)
+        Shutdown       # Requested shutdown (trappable)
+        Exception      # Crashed with exception
+        Timeout        # Timed out waiting
+        InvalidProcess # Target process doesn't exist
+        Custom         # User-defined reason
       end
 
       getter type : Type
@@ -56,8 +56,8 @@ module Jelly
         new(Type::Timeout, "timeout")
       end
 
-      def self.noproc : ExitReason
-        new(Type::NoProc, "noproc")
+      def self.invalid_process : ExitReason
+        new(Type::InvalidProcess, "invalid_process")
       end
 
       def self.custom(message : String) : ExitReason
@@ -91,8 +91,8 @@ module Jelly
           "exception: #{@message}"
         when .timeout?
           "timeout"
-        when .no_proc?
-          "noproc"
+        when .invalid_process?
+          "invalid_process"
         when .custom?
           @message
         else
