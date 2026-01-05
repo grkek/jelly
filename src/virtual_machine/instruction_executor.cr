@@ -41,9 +41,23 @@ module Jelly
           when Code::MODULO   then execute_modulo(process)
           when Code::NEGATE   then execute_negate(process)
             # String operations
-          when Code::CONCATENATE   then execute_concatenate(process)
-          when Code::STRING_LENGTH then execute_string_length(process)
-          when Code::SUBSTRING     then execute_substring(process)
+          when Code::STRING_CONCATENATE then execute_string_concatenate(process)
+          when Code::STRING_LENGTH      then execute_string_length(process)
+          when Code::STRING_SUBSTRING   then execute_string_substring(process)
+          when Code::STRING_TRIM        then execute_string_trim(process)
+          when Code::STRING_INDEX       then execute_string_index(process)
+          when Code::STRING_SPLIT       then execute_string_split(process)
+          when Code::STRING_UPPER       then execute_string_upper(process)
+          when Code::STRING_LOWER       then execute_string_lower(process)
+          when Code::STRING_REPLACE     then execute_string_replace(process)
+          when Code::STRING_STARTS_WITH then execute_string_starts_with(process)
+          when Code::STRING_ENDS_WITH   then execute_string_ends_with(process)
+          when Code::STRING_CONTAINS    then execute_string_contains(process)
+          when Code::CHAR_AT            then execute_char_at(process)
+          when Code::CHAR_CODE          then execute_char_code(process)
+          when Code::CHAR_FROM_CODE     then execute_char_from_code(process)
+          when Code::BINARY_TO_STRING   then execute_binary_to_string(process)
+          when Code::STRING_TO_BINARY   then execute_string_to_binary(process)
             # Comparisons
           when Code::LESS_THAN             then execute_less_than(process)
           when Code::GREATER_THAN          then execute_greater_than(process)
@@ -398,7 +412,7 @@ module Jelly
       end
 
       # Concatenate the top two string values on the stack
-      private def execute_concatenate(process : Process) : Value
+      private def execute_string_concatenate(process : Process) : Value
         process.counter += 1
         check_stack_size(process, 2, "CONCATENATE")
         b = process.stack.pop
@@ -427,26 +441,340 @@ module Jelly
       end
 
       # Extract substring: [str, start, length] → [substring]
-      private def execute_substring(process : Process) : Value
+      private def execute_string_substring(process : Process) : Value
         process.counter += 1
+
         check_stack_size(process, 3, "SUBSTRING")
+
         length = process.stack.pop
         start = process.stack.pop
         str = process.stack.pop
+
         unless str.is_string?
           raise TypeMismatchException.new("SUBSTRING requires a string value")
         end
+
         unless start.is_integer? && length.is_integer?
           raise TypeMismatchException.new("SUBSTRING requires Integer start and length")
         end
+
         check_stack_capacity(process)
+
         s = str.to_s
         start_idx = start.to_i64
         len = length.to_i64
+
         if start_idx < 0 || start_idx > s.size
           raise EmulationException.new("SUBSTRING start index out of bounds")
         end
+
         result = Value.new(s[start_idx, len]? || "")
+        process.stack.push(result)
+
+        result
+      end
+
+      private def execute_string_trim(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "STRING_TRIM")
+
+        str_value = process.stack.pop
+
+        unless str_value.is_string?
+          raise TypeMismatchException.new("STRING_TRIM requires a string value")
+        end
+
+        check_stack_capacity(process)
+
+        result = Value.new(str_value.to_s.strip)
+        process.stack.push(result)
+        result
+      end
+
+      # Split string by delimiter
+      private def execute_string_split(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "STRING_SPLIT")
+
+        delimiter = process.stack.pop
+        str = process.stack.pop
+
+        unless str.is_string? && delimiter.is_string?
+          raise TypeMismatchException.new("STRING_SPLIT requires two string values")
+        end
+
+        check_stack_capacity(process)
+
+        parts = str.to_s.split(delimiter.to_s)
+        result = Value.new(parts.map { |p| Value.new(p) })
+
+        process.stack.push(result)
+        result
+      end
+
+      # Convert to uppercase
+      private def execute_string_upper(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "STRING_UPPER")
+
+        str = process.stack.pop
+
+        unless str.is_string?
+          raise TypeMismatchException.new("STRING_UPPER requires a string value")
+        end
+
+        check_stack_capacity(process)
+
+        result = Value.new(str.to_s.upcase)
+        process.stack.push(result)
+        result
+      end
+
+      # Convert to lowercase
+      private def execute_string_lower(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "STRING_LOWER")
+
+        str = process.stack.pop
+
+        unless str.is_string?
+          raise TypeMismatchException.new("STRING_LOWER requires a string value")
+        end
+
+        check_stack_capacity(process)
+
+        result = Value.new(str.to_s.downcase)
+        process.stack.push(result)
+        result
+      end
+
+      # Replace occurrences of substring
+      private def execute_string_replace(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 3, "STRING_REPLACE")
+
+        replacement = process.stack.pop
+        pattern = process.stack.pop
+        str = process.stack.pop
+
+        unless str.is_string? && pattern.is_string? && replacement.is_string?
+          raise TypeMismatchException.new("STRING_REPLACE requires three string values")
+        end
+
+        check_stack_capacity(process)
+
+        result = Value.new(str.to_s.gsub(pattern.to_s, replacement.to_s))
+        process.stack.push(result)
+        result
+      end
+
+      # Check if string starts with prefix
+      private def execute_string_starts_with(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "STRING_STARTS_WITH")
+
+        prefix = process.stack.pop
+        str = process.stack.pop
+
+        unless str.is_string? && prefix.is_string?
+          raise TypeMismatchException.new("STRING_STARTS_WITH requires two string values")
+        end
+
+        check_stack_capacity(process)
+
+        result = Value.new(str.to_s.starts_with?(prefix.to_s))
+        process.stack.push(result)
+        result
+      end
+
+      # Check if string ends with suffix
+      private def execute_string_ends_with(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "STRING_ENDS_WITH")
+
+        suffix = process.stack.pop
+        str = process.stack.pop
+
+        unless str.is_string? && suffix.is_string?
+          raise TypeMismatchException.new("STRING_ENDS_WITH requires two string values")
+        end
+
+        check_stack_capacity(process)
+
+        result = Value.new(str.to_s.ends_with?(suffix.to_s))
+        process.stack.push(result)
+        result
+      end
+
+      # Check if string contains substring
+      private def execute_string_contains(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "STRING_CONTAINS")
+
+        needle = process.stack.pop
+        str = process.stack.pop
+
+        unless str.is_string? && needle.is_string?
+          raise TypeMismatchException.new("STRING_CONTAINS requires two string values")
+        end
+
+        check_stack_capacity(process)
+
+        result = Value.new(str.to_s.includes?(needle.to_s))
+        process.stack.push(result)
+        result
+      end
+
+      # Get character at index
+      private def execute_char_at(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "CHAR_AT")
+
+        index = process.stack.pop
+        str = process.stack.pop
+
+        unless str.is_string?
+          raise TypeMismatchException.new("CHAR_AT requires a string value")
+        end
+
+        unless index.is_integer?
+          raise TypeMismatchException.new("CHAR_AT requires an integer index")
+        end
+
+        check_stack_capacity(process)
+
+        s = str.to_s
+        idx = index.to_i64
+
+        if idx < 0 || idx >= s.size
+          raise EmulationException.new("CHAR_AT index out of bounds: #{idx}")
+        end
+
+        result = Value.new(s[idx].to_s)
+        process.stack.push(result)
+        result
+      end
+
+      # Get ASCII/Unicode code of first character
+      private def execute_char_code(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "CHAR_CODE")
+
+        str = process.stack.pop
+
+        unless str.is_string?
+          raise TypeMismatchException.new("CHAR_CODE requires a string value")
+        end
+
+        check_stack_capacity(process)
+
+        s = str.to_s
+        if s.empty?
+          raise EmulationException.new("CHAR_CODE on empty string")
+        end
+
+        result = Value.new(s[0].ord.to_i64)
+        process.stack.push(result)
+        result
+      end
+
+      # Create single-character string from code
+      private def execute_char_from_code(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "CHAR_FROM_CODE")
+
+        code = process.stack.pop
+
+        unless code.is_integer?
+          raise TypeMismatchException.new("CHAR_FROM_CODE requires an integer value")
+        end
+
+        check_stack_capacity(process)
+
+        char_code = code.to_i64
+        if char_code < 0 || char_code > 0x10FFFF
+          raise EmulationException.new("CHAR_FROM_CODE invalid code point: #{char_code}")
+        end
+
+        result = Value.new(char_code.to_i32.unsafe_chr.to_s)
+        process.stack.push(result)
+        result
+      end
+
+      # Convert binary data (Slice(UInt8)) to a string
+      private def execute_binary_to_string(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "BINARY_TO_STRING")
+
+        binary_value = process.stack.pop
+
+        unless binary_value.is_binary?
+          # If it's already a string, just push it back
+          if binary_value.is_string?
+            check_stack_capacity(process)
+            process.stack.push(binary_value)
+            return binary_value
+          end
+
+          raise TypeMismatchException.new("BINARY_TO_STRING requires binary data or string")
+        end
+
+        check_stack_capacity(process)
+
+        # Convert binary to string
+        binary = binary_value.to_binary
+        str = String.new(binary)
+        result = Value.new(str)
+
+        process.stack.push(result)
+        result
+      end
+
+      # Convert string to binary data (Slice(UInt8))
+      private def execute_string_to_binary(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 1, "STRING_TO_BINARY")
+
+        string_value = process.stack.pop
+
+        unless string_value.is_string?
+          # If it's already binary, just push it back
+          if string_value.is_binary?
+            check_stack_capacity(process)
+            process.stack.push(string_value)
+            return string_value
+          end
+
+          raise TypeMismatchException.new("STRING_TO_BINARY requires string data or binary")
+        end
+
+        check_stack_capacity(process)
+
+        # Convert string to binary
+        binary = string_value.to_s.to_slice
+        result = Value.new(binary)
+
+        process.stack.push(result)
+        result
+      end
+
+      # Find index of substring (returns -1 if not found)
+      private def execute_string_index(process : Process) : Value
+        process.counter += 1
+        check_stack_size(process, 2, "STRING_INDEX")
+
+        needle = process.stack.pop
+        haystack = process.stack.pop
+
+        unless haystack.is_string? && needle.is_string?
+          raise TypeMismatchException.new("STRING_INDEX requires two string values")
+        end
+
+        check_stack_capacity(process)
+
+        index = haystack.to_s.index(needle.to_s)
+        result = Value.new(index ? index.to_i64 : -1_i64)
+
         process.stack.push(result)
         result
       end
@@ -750,7 +1078,7 @@ module Jelly
         socket_id_val = process.stack.pop
 
         unless socket_id_val.is_integer?
-          raise TypeMismatchException.new("TCP_SEND requires socket_id (integer) and data (string or bytes)")
+          raise TypeMismatchException.new("TCP_SEND requires socket_id (integer) and data (string or binary)")
         end
 
         socket_id = socket_id_val.to_i64.to_u64
@@ -765,20 +1093,20 @@ module Jelly
         elsif data_val.is_binary?
           data_val.to_binary
         else
-          raise TypeMismatchException.new("TCP_SEND data must be String or Bytes")
+          raise TypeMismatchException.new("TCP_SEND data must be String or binary")
         end
 
         begin
-          socket.write(slice) # This blocks until ALL bytes are sent or error
-          bytes_written = slice.size.to_i64
+          socket.write(slice) # This blocks until ALL binary are sent or error
+          binary_written = slice.size.to_i64
         rescue ex
           Log.warn { "Process <#{process.address}> TCP send failed: #{ex.message}" }
-          bytes_written = -1_i64 # or -1, depending on your convention
+          binary_written = -1_i64 # or -1, depending on your convention
         end
 
-        Log.debug { "Process <#{process.address}> sent #{bytes_written} bytes on socket #{socket_id}" }
+        Log.debug { "Process <#{process.address}> sent #{binary_written} binary on socket #{socket_id}" }
 
-        result = Value.new(bytes_written)
+        result = Value.new(binary_written)
         check_stack_capacity(process)
         process.stack.push(result)
         result
@@ -788,31 +1116,31 @@ module Jelly
       private def execute_tcp_receive(process : Process) : Value
         process.counter += 1
 
-        max_bytes_value = process.stack.pop
+        max_binary_value = process.stack.pop
         socket_id_value = process.stack.pop
 
-        unless socket_id_value.is_integer? && max_bytes_value.is_integer?
-          raise TypeMismatchException.new("TCP_RECEIVE requires socket_id (int) and max_bytes (int)")
+        unless socket_id_value.is_integer? && max_binary_value.is_integer?
+          raise TypeMismatchException.new("TCP_RECEIVE requires socket_id (int) and max_binary (int)")
         end
 
         socket_id = socket_id_value.to_i64.to_u64
-        max_bytes = max_bytes_value.to_i64.to_i32
+        max_binary = max_binary_value.to_i64.to_i32
 
-        raise EmulationException.new("TCP_RECEIVE max_bytes must be > 0") if max_bytes <= 0
+        raise EmulationException.new("TCP_RECEIVE max_binary must be > 0") if max_binary <= 0
 
         socket = @sockets[socket_id]?
         unless socket
           raise EmulationException.new("Invalid socket ID: #{socket_id}")
         end
 
-        buffer = Slice(UInt8).new(max_bytes)
-        bytes_read = socket.read(buffer)
+        buffer = Slice(UInt8).new(max_binary)
+        binary_read = socket.read(buffer)
 
-        received_data = buffer[0, bytes_read]
+        received_data = buffer[0, binary_read]
 
         result = Value.new(received_data)
 
-        Log.debug { "Process <#{process.address}> received #{bytes_read} bytes on socket #{socket_id}" }
+        Log.debug { "Process <#{process.address}> received #{binary_read} binary on socket #{socket_id}" }
 
         check_stack_capacity(process)
         process.stack.push(result)

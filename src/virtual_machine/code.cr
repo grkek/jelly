@@ -74,14 +74,56 @@ module Jelly
 
       # String operations
 
-      CONCATENATE # Concatenate two strings
+      STRING_CONCATENATE # Concatenate two strings
       # Stack: [str1, str2] → [str1 + str2]
 
       STRING_LENGTH # Get length of string
-      # Stack: [str] → [length]
+      # Stack: [string] → [length]
 
-      SUBSTRING # Extract substring
+      STRING_SUBSTRING # Extract substring
       # Stack: [str, start, length] → [substring]
+
+      BINARY_TO_STRING # Convert binary data to string
+      # Stack: [binary] → [string]
+
+      STRING_TO_BINARY # Convert string to binary data
+      # Stack: [string] → [binary]
+
+      STRING_INDEX # Find index of substring (returns -1 if not found)
+      # Stack: [str, needle] → [index]
+
+      STRING_SPLIT # Split string by delimiter
+      # Stack: [str, delimiter] → [array of strings]
+
+      STRING_TRIM # Remove leading/trailing whitespace
+      # Stack: [string] → [trimmed_string]
+
+      STRING_UPPER # Convert to uppercase
+      # Stack: [string] → [upper_string]
+
+      STRING_LOWER # Convert to lowercase
+      # Stack: [string] → [lower_string]
+
+      STRING_REPLACE # Replace occurrences of substring
+      # Stack: [str, old, new] → [replaced_string]
+
+      STRING_STARTS_WITH # Check if string starts with prefix
+      # Stack: [str, prefix] → [bool]
+
+      STRING_ENDS_WITH # Check if string ends with suffix
+      # Stack: [str, suffix] → [bool]
+
+      STRING_CONTAINS # Check if string contains substring
+      # Stack: [str, needle] → [bool]
+
+      CHAR_AT # Get character at index
+      # Stack: [str, index] → [char_string]
+
+      CHAR_CODE # Get ASCII/Unicode code of first character
+      # Stack: [string] → [code]
+
+      CHAR_FROM_CODE # Create single-character string from code
+      # Stack: [code] → [char_string]
 
       # Comparison operations
       # All comparisons push a boolean result
@@ -255,12 +297,12 @@ module Jelly
       # Stack: [host, port] → [socket_id or null]
 
       TCP_SEND # Send data over a TCP socket
-      # Stack: [socket_id, data] → [bytes_sent]
-      #   data can be String OR Bytes (Slice(UInt8))
+      # Stack: [socket_id, data] → [sent_size]
+      #   data can be string or binary (Slice(UInt8))
 
-      TCP_RECEIVE # Receive data from a TCP socket (up to max_bytes)
-      # Stack: [socket_id, max_bytes] → [received_bytes]
-      #   Returns a Bytes value (Slice(UInt8)) containing raw received data
+      TCP_RECEIVE # Receive data from a TCP socket (up to maximum_size)
+      # Stack: [socket_id, maximum_size] → [received_binary]
+      #   Returns a binary value (Slice(UInt8)) containing raw received data
 
       TCP_CLOSE # Close a TCP socket
       # Stack: [socket_id] → [bool]

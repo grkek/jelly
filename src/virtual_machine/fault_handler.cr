@@ -33,7 +33,7 @@ module Jelly
               break
             end
           end
-          Log.debug { "Demonitoring the singal handlers" }
+          Log.debug { "Demonitoring the signal handlers" }
         end
       end
 
