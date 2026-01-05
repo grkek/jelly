@@ -175,7 +175,7 @@ module Jelly
         specification, _ = @children[child_index]
         @children[child_index] = {specification, nil}
 
-        Log.info { "Supervisor <#{@address}>: Child '#{specification.id}' <#{pid}> exited: #{reason}" }
+        Log.info { "Supervisor <#{@address}>: Child '#{specification.id}' <#{pid}> exited: #{reason.type}" }
 
         # Determine if we should restart
         should_restart = case specification.restart

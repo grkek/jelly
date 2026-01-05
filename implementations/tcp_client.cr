@@ -6,13 +6,13 @@ engine = VirtualMachine::Engine.new
 
 worker_instructions = [
   # Connect to icanhazip.com
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_STRING, VirtualMachine::Value.new("icanhazip.com")), # 0
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_INTEGER, VirtualMachine::Value.new(80_i64)),         # 1
-  VirtualMachine::Instruction.new(VirtualMachine::Code::TCP_CONNECT),                                             # 2
-  VirtualMachine::Instruction.new(VirtualMachine::Code::DUPLICATE),                                               # 3
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_NULL),                                               # 4
-  VirtualMachine::Instruction.new(VirtualMachine::Code::EQUAL),                                                   # 5
-  VirtualMachine::Instruction.new(VirtualMachine::Code::JUMP_IF, VirtualMachine::Value.new(28_i64)),              # 6 -> jump to failure path
+  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_STRING, VirtualMachine::Value.new("icanhazip1.com")), # 0
+  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_INTEGER, VirtualMachine::Value.new(80_i64)),          # 1
+  VirtualMachine::Instruction.new(VirtualMachine::Code::TCP_CONNECT),                                              # 2
+  VirtualMachine::Instruction.new(VirtualMachine::Code::DUPLICATE),                                                # 3
+  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_NULL),                                                # 4
+  VirtualMachine::Instruction.new(VirtualMachine::Code::EQUAL),                                                    # 5
+  VirtualMachine::Instruction.new(VirtualMachine::Code::JUMP_IF, VirtualMachine::Value.new(30_i64)),               # 6 -> jump to failure path
 
   # Success path - store socket in local 0
   VirtualMachine::Instruction.new(VirtualMachine::Code::STORE_LOCAL, VirtualMachine::Value.new(0_i64)), # 7
@@ -59,10 +59,10 @@ worker_instructions = [
   VirtualMachine::Instruction.new(VirtualMachine::Code::EXIT_SELF),                                        # 36
 
   # Failure path (index 37)
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_STRING, VirtualMachine::Value.new("Failed to connect")), # 37
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PRINT_LINE),                                                  # 38
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_STRING, VirtualMachine::Value.new("connect_failed")),    # 39
-  VirtualMachine::Instruction.new(VirtualMachine::Code::EXIT_SELF),                                                   # 40
+  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_STRING, VirtualMachine::Value.new("Connection failed")),
+  VirtualMachine::Instruction.new(VirtualMachine::Code::PRINT_LINE),
+  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_STRING, VirtualMachine::Value.new("connect_failed")), # Non-normal exit
+  VirtualMachine::Instruction.new(VirtualMachine::Code::EXIT_SELF),
 ]
 
 # Create supervisor
@@ -86,7 +86,7 @@ supervisor.add_child(worker)
 
 Log.info { "Starting VM with properly supervised worker..." }
 
-# Log.setup(:debug)
+Log.setup(:debug)
 
 engine.run
 
