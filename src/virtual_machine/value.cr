@@ -9,6 +9,7 @@ module Jelly
         UnsignedInteger
         Float
         String
+        Symbol
         Boolean
         Map
         Array
@@ -51,6 +52,13 @@ module Jelly
       # Create a string value
       def initialize(object : String)
         @primitive_type = PrimitiveType::String
+        @pointer = Box.box(object)
+        @custom_type = nil
+      end
+
+      # Create a symbol value
+      def initialize(object : Symbol)
+        @primitive_type = PrimitiveType::Symbol
         @pointer = Box.box(object)
         @custom_type = nil
       end
@@ -128,6 +136,7 @@ module Jelly
         when .unsigned_integer? then "UnsignedInteger"
         when .float?            then "Float"
         when .string?           then "String"
+        when .symbol?           then "Symbol"
         when .boolean?          then "Boolean"
         when .map?              then "Map"
         when .array?            then "Array"
@@ -160,6 +169,11 @@ module Jelly
       # Check if value is a string
       def is_string? : Bool
         @primitive_type.string?
+      end
+
+      # Check if value is a symbol
+      def is_symbol? : Bool
+        @primitive_type.symbol?
       end
 
       # Check if value is a boolean
@@ -248,6 +262,7 @@ module Jelly
         when .float?            then Box(Float64).unbox(@pointer).to_s
         when .boolean?          then Box(Bool).unbox(@pointer).to_s
         when .string?           then Box(::String).unbox(@pointer)
+        when .symbol?           then Box(Symbol).unbox(@pointer).to_s
         when .map?
           hash = Box(Hash(::String, Value)).unbox(@pointer)
           "{#{hash.map { |k, v| "#{k}: #{v.to_s}" }.join(", ")}}"
@@ -263,14 +278,21 @@ module Jelly
         end
       end
 
+      # Convert value to Symbol
+      def to_symbol : Symbol
+        raise EmulationException.new("Cannot convert #{type} to symbol") unless is_symbol?
+        Box(Symbol).unbox(@pointer)
+      end
+
       # Convert value to Bool
-      def to_b : Bool
+      def to_bool : Bool
         case @primitive_type
         when .boolean?          then Box(Bool).unbox(@pointer)
         when .integer?          then Box(Int64).unbox(@pointer) != 0_i64
         when .unsigned_integer? then Box(UInt64).unbox(@pointer) != 0_u64
         when .float?            then Box(Float64).unbox(@pointer) != 0.0
         when .string?           then !Box(::String).unbox(@pointer).empty?
+        when .symbol?           then !to_s.empty?
         when .map?              then !Box(Hash(::String, Value)).unbox(@pointer).empty?
         when .array?            then !Box(::Array(Value)).unbox(@pointer).empty?
         when .binary?           then !to_binary.empty?
@@ -330,7 +352,8 @@ module Jelly
         when .unsigned_integer? then Value.new(to_u64)
         when .float?            then Value.new(to_f64)
         when .string?           then Value.new(Box(::String).unbox(@pointer).dup)
-        when .boolean?          then Value.new(to_b)
+        when .symbol?           then Value.new(to_symbol)
+        when .boolean?          then Value.new(to_bool)
         when .map?
           cloned_hash = Hash(::String, Value).new
           to_h.each { |k, v| cloned_hash[k] = v.clone }
@@ -352,7 +375,8 @@ module Jelly
         when .unsigned_integer? then to_u64 == other.to_u64
         when .float?            then to_f64 == other.to_f64
         when .string?           then to_s == other.to_s
-        when .boolean?          then to_b == other.to_b
+        when .symbol?           then to_symbol == other.to_symbol
+        when .boolean?          then to_bool == other.to_bool
         when .map?              then to_h == other.to_h
         when .array?            then to_a == other.to_a
         when .binary?           then to_binary == other.to_binary

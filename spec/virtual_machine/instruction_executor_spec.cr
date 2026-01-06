@@ -77,7 +77,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         process = TestHelpers.create_process(engine, instructions)
         engine.execute(process, instructions[0])
         process.stack.size.should eq(1)
-        process.stack.last.to_b.should be_true
+        process.stack.last.to_bool.should be_true
       end
 
       it "pushes false onto the stack" do
@@ -86,7 +86,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         process = TestHelpers.create_process(engine, instructions)
         engine.execute(process, instructions[0])
         process.stack.size.should eq(1)
-        process.stack.last.to_b.should be_false
+        process.stack.last.to_bool.should be_false
       end
     end
 
@@ -374,10 +374,10 @@ describe Jelly::VirtualMachine::InstructionExecutor do
   end
 
   describe "string operations" do
-    describe "CONCATENATE" do
+    describe "STRING_CONCATENATE" do
       it "concatenates two strings" do
         engine = TestHelpers.create_engine
-        instructions = [InstructionWrapper.new(CodeWrapper::CONCATENATE)]
+        instructions = [InstructionWrapper.new(CodeWrapper::STRING_CONCATENATE)]
         stack = [ValueWrapper.new("Hello, "), ValueWrapper.new("World!")]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
@@ -386,7 +386,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
 
       it "handles empty strings" do
         engine = TestHelpers.create_engine
-        instructions = [InstructionWrapper.new(CodeWrapper::CONCATENATE)]
+        instructions = [InstructionWrapper.new(CodeWrapper::STRING_CONCATENATE)]
         stack = [ValueWrapper.new("Hello"), ValueWrapper.new("")]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
@@ -395,7 +395,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
 
       it "raises for non-string values" do
         engine = TestHelpers.create_engine
-        instructions = [InstructionWrapper.new(CodeWrapper::CONCATENATE)]
+        instructions = [InstructionWrapper.new(CodeWrapper::STRING_CONCATENATE)]
         stack = [ValueWrapper.new("Hello"), ValueWrapper.new(42_i64)]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
@@ -421,10 +421,10 @@ describe Jelly::VirtualMachine::InstructionExecutor do
       end
     end
 
-    describe "SUBSTRING" do
+    describe "STRING_SUBSTRING" do
       it "extracts substring" do
         engine = TestHelpers.create_engine
-        instructions = [InstructionWrapper.new(CodeWrapper::SUBSTRING)]
+        instructions = [InstructionWrapper.new(CodeWrapper::STRING_SUBSTRING)]
         stack = [ValueWrapper.new("Hello, World!"), ValueWrapper.new(0_i64), ValueWrapper.new(5_i64)]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
@@ -433,7 +433,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
 
       it "extracts middle substring" do
         engine = TestHelpers.create_engine
-        instructions = [InstructionWrapper.new(CodeWrapper::SUBSTRING)]
+        instructions = [InstructionWrapper.new(CodeWrapper::STRING_SUBSTRING)]
         stack = [ValueWrapper.new("Hello, World!"), ValueWrapper.new(7_i64), ValueWrapper.new(5_i64)]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
@@ -442,7 +442,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
 
       it "raises for out of bounds start" do
         engine = TestHelpers.create_engine
-        instructions = [InstructionWrapper.new(CodeWrapper::SUBSTRING)]
+        instructions = [InstructionWrapper.new(CodeWrapper::STRING_SUBSTRING)]
         stack = [ValueWrapper.new("Hello"), ValueWrapper.new(10_i64), ValueWrapper.new(2_i64)]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
@@ -459,7 +459,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         stack = [ValueWrapper.new(5_i64), ValueWrapper.new(10_i64)]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_true
+        process.stack.last.to_bool.should be_true
       end
 
       it "returns false when first is greater than second" do
@@ -468,7 +468,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         stack = [ValueWrapper.new(10_i64), ValueWrapper.new(5_i64)]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_false
+        process.stack.last.to_bool.should be_false
       end
 
       it "returns false when equal" do
@@ -477,7 +477,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         stack = [ValueWrapper.new(5_i64), ValueWrapper.new(5_i64)]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_false
+        process.stack.last.to_bool.should be_false
       end
     end
 
@@ -488,7 +488,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         stack = [ValueWrapper.new(10_i64), ValueWrapper.new(5_i64)]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_true
+        process.stack.last.to_bool.should be_true
       end
     end
 
@@ -499,7 +499,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         stack = [ValueWrapper.new(5_i64), ValueWrapper.new(5_i64)]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_true
+        process.stack.last.to_bool.should be_true
       end
 
       it "returns true when less than" do
@@ -508,7 +508,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         stack = [ValueWrapper.new(3_i64), ValueWrapper.new(5_i64)]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_true
+        process.stack.last.to_bool.should be_true
       end
     end
 
@@ -519,7 +519,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         stack = [ValueWrapper.new(5_i64), ValueWrapper.new(5_i64)]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_true
+        process.stack.last.to_bool.should be_true
       end
     end
 
@@ -530,7 +530,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         stack = [ValueWrapper.new(42_i64), ValueWrapper.new(42_i64)]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_true
+        process.stack.last.to_bool.should be_true
       end
 
       it "returns false for different integers" do
@@ -539,7 +539,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         stack = [ValueWrapper.new(42_i64), ValueWrapper.new(43_i64)]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_false
+        process.stack.last.to_bool.should be_false
       end
 
       it "returns true for equal strings" do
@@ -548,7 +548,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         stack = [ValueWrapper.new("hello"), ValueWrapper.new("hello")]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_true
+        process.stack.last.to_bool.should be_true
       end
 
       it "returns false for different types" do
@@ -557,7 +557,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         stack = [ValueWrapper.new(42_i64), ValueWrapper.new("42")]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_false
+        process.stack.last.to_bool.should be_false
       end
     end
 
@@ -568,7 +568,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         stack = [ValueWrapper.new(42_i64), ValueWrapper.new(42_i64)]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_false
+        process.stack.last.to_bool.should be_false
       end
 
       it "returns true for different values" do
@@ -577,7 +577,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         stack = [ValueWrapper.new(42_i64), ValueWrapper.new(43_i64)]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_true
+        process.stack.last.to_bool.should be_true
       end
     end
   end
@@ -590,7 +590,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         stack = [ValueWrapper.new(true), ValueWrapper.new(true)]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_true
+        process.stack.last.to_bool.should be_true
       end
 
       it "returns false when first is false" do
@@ -599,7 +599,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         stack = [ValueWrapper.new(false), ValueWrapper.new(true)]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_false
+        process.stack.last.to_bool.should be_false
       end
 
       it "returns false when second is false" do
@@ -608,7 +608,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         stack = [ValueWrapper.new(true), ValueWrapper.new(false)]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_false
+        process.stack.last.to_bool.should be_false
       end
 
       it "treats truthy values as true" do
@@ -617,7 +617,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         stack = [ValueWrapper.new(1_i64), ValueWrapper.new("hello")]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_true
+        process.stack.last.to_bool.should be_true
       end
     end
 
@@ -628,7 +628,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         stack = [ValueWrapper.new(false), ValueWrapper.new(true)]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_true
+        process.stack.last.to_bool.should be_true
       end
 
       it "returns false when both are false" do
@@ -637,7 +637,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         stack = [ValueWrapper.new(false), ValueWrapper.new(false)]
         process = TestHelpers.create_process_with_stack(engine, instructions, stack)
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_false
+        process.stack.last.to_bool.should be_false
       end
     end
 
@@ -647,7 +647,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         instructions = [InstructionWrapper.new(CodeWrapper::NOT)]
         process = TestHelpers.create_process_with_stack(engine, instructions, [ValueWrapper.new(true)])
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_false
+        process.stack.last.to_bool.should be_false
       end
 
       it "returns true for false" do
@@ -655,7 +655,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         instructions = [InstructionWrapper.new(CodeWrapper::NOT)]
         process = TestHelpers.create_process_with_stack(engine, instructions, [ValueWrapper.new(false)])
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_true
+        process.stack.last.to_bool.should be_true
       end
 
       it "returns true for falsy value (zero)" do
@@ -663,7 +663,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         instructions = [InstructionWrapper.new(CodeWrapper::NOT)]
         process = TestHelpers.create_process_with_stack(engine, instructions, [ValueWrapper.new(0_i64)])
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_true
+        process.stack.last.to_bool.should be_true
       end
     end
   end
@@ -1182,7 +1182,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         engine.execute(process, instructions[0])
         process.stack.size.should eq(2)
         process.stack[0].to_s.should eq("timely message")
-        process.stack[1].to_b.should be_true
+        process.stack[1].to_bool.should be_true
       end
 
       it "sets process to WAITING with timeout when no message" do
@@ -1203,7 +1203,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         process = TestHelpers.create_process(engine, instructions)
         engine.execute(process, instructions[0])
         process.state.should eq(ProcessWrapper::State::ALIVE)
-        process.stack.last.to_b.should be_false
+        process.stack.last.to_bool.should be_false
       end
     end
 
@@ -1251,7 +1251,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         instructions2 = [InstructionWrapper.new(CodeWrapper::REGISTER_PROCESS, ValueWrapper.new("shared_name")), InstructionWrapper.new(CodeWrapper::HALT)]
         process2 = TestHelpers.create_process(engine, instructions2)
         result = engine.execute(process2, instructions2[0])
-        result.to_b.should be_false
+        result.to_bool.should be_false
         process2.registered_name.should be_nil
       end
     end
@@ -1291,7 +1291,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         engine.processes << process
         TestHelpers.run_until_halt(engine, process)
         target_process.state.should eq(ProcessWrapper::State::DEAD)
-        process.stack.last.to_b.should be_true
+        process.stack.last.to_bool.should be_true
       end
 
       it "returns false for non-existent process" do
@@ -1299,7 +1299,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         instructions = [InstructionWrapper.new(CodeWrapper::KILL)]
         process = TestHelpers.create_process_with_stack(engine, instructions, [ValueWrapper.new(9999_i64)])
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_false
+        process.stack.last.to_bool.should be_false
       end
     end
 
@@ -1508,7 +1508,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         process.stack.push(ValueWrapper.new(target.address.to_i64))
         engine.execute(process, instructions[0])
         engine.process_links.linked?(process.address, target.address).should be_false
-        process.stack.last.to_b.should be_true
+        process.stack.last.to_bool.should be_true
       end
     end
 
@@ -1536,7 +1536,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         instructions = [InstructionWrapper.new(CodeWrapper::DEMONITOR)]
         process.stack.push(ValueWrapper.new(ref.id.to_i64))
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_true
+        process.stack.last.to_bool.should be_true
         engine.process_links.get_monitors(process.address).should be_empty
       end
     end
@@ -1548,7 +1548,7 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         process = TestHelpers.create_process_with_stack(engine, instructions, [ValueWrapper.new(true)])
         engine.execute(process, instructions[0])
         engine.process_links.traps_exit?(process.address).should be_true
-        process.stack.last.to_b.should be_false # old value
+        process.stack.last.to_bool.should be_false # old value
       end
     end
 
@@ -1597,12 +1597,12 @@ describe Jelly::VirtualMachine::InstructionExecutor do
         instructions = [InstructionWrapper.new(CodeWrapper::IS_ALIVE)]
         process = TestHelpers.create_process_with_stack(engine, instructions, [ValueWrapper.new(target.address.to_i64)])
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_true
+        process.stack.last.to_bool.should be_true
         target.state = ProcessWrapper::State::DEAD
         process.stack.pop
         process.stack.push(ValueWrapper.new(target.address.to_i64))
         engine.execute(process, instructions[0])
-        process.stack.last.to_b.should be_false
+        process.stack.last.to_bool.should be_false
       end
     end
 

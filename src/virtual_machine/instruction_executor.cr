@@ -32,6 +32,7 @@ module Jelly
           when Code::PUSH_FLOAT            then execute_push_float(process, instruction)
           when Code::PUSH_STRING           then execute_push_string(process, instruction)
           when Code::PUSH_BOOLEAN          then execute_push_boolean(process, instruction)
+          when Code::PUSH_SYMBOL           then execute_push_symbol(process, instruction)
           when Code::PUSH_NULL             then execute_push_null(process)
             # Arithmetic
           when Code::ADD      then execute_add(process)
@@ -223,12 +224,30 @@ module Jelly
       # Push a boolean value onto the stack
       private def execute_push_boolean(process : Process, instruction : Instruction) : Value
         process.counter += 1
+
         unless instruction.value.is_boolean?
           raise TypeMismatchException.new("PUSH_BOOLEAN requires a boolean value")
         end
+
         check_stack_capacity(process)
-        value = Value.new(instruction.value.to_b)
+
+        value = Value.new(instruction.value.to_bool)
         process.stack.push(value)
+        value
+      end
+
+      # Push a symbol value onto the stack
+      private def execute_push_symbol(process : Process, instruction : Instruction) : Value
+        process.counter += 1
+
+        unless instruction.value.is_symbol?
+          raise TypeMismatchException.new("PUSH_SYMBOL requires a symbol value")
+        end
+
+        check_stack_capacity(process)
+        value = Value.new(instruction.value.to_symbol)
+        process.stack.push(value)
+
         value
       end
 
@@ -870,7 +889,7 @@ module Jelly
         b = process.stack.pop
         a = process.stack.pop
         check_stack_capacity(process)
-        result = Value.new(a.to_b && b.to_b)
+        result = Value.new(a.to_bool && b.to_bool)
         process.stack.push(result)
         result
       end
@@ -882,7 +901,7 @@ module Jelly
         b = process.stack.pop
         a = process.stack.pop
         check_stack_capacity(process)
-        result = Value.new(a.to_b || b.to_b)
+        result = Value.new(a.to_bool || b.to_bool)
         process.stack.push(result)
         result
       end
@@ -893,7 +912,7 @@ module Jelly
         check_stack_size(process, 1, "NOT")
         a = process.stack.pop
         check_stack_capacity(process)
-        result = Value.new(!a.to_b)
+        result = Value.new(!a.to_bool)
         process.stack.push(result)
         result
       end
@@ -917,16 +936,21 @@ module Jelly
       # Store top of stack into local variable
       private def execute_store_local(process : Process, instruction : Instruction) : Value
         process.counter += 1
+
         unless instruction.value.is_integer?
           raise TypeMismatchException.new("STORE_LOCAL requires an integer index")
         end
+
         check_stack_size(process, 1, "STORE_LOCAL")
+
         index = instruction.value.to_i64
         value = process.stack.pop
 
         while process.locals.size <= index
           process.locals.push(Value.new)
         end
+
+        pp process.stack
 
         process.locals[index] = value
         value
@@ -970,7 +994,7 @@ module Jelly
           raise TypeMismatchException.new("JUMP_IF requires an integer offset")
         end
         offset = instruction.value.to_i64
-        if condition.to_b
+        if condition.to_bool
           new_counter = process.counter.to_i64 + offset
           if new_counter < 0 || new_counter >= process.instructions.size
             raise EmulationException.new("JUMP_IF to invalid address: #{new_counter}")
@@ -983,19 +1007,27 @@ module Jelly
       # Jump if the top stack value is false
       private def execute_jump_unless(process : Process, instruction : Instruction) : Value
         process.counter += 1
+
         check_stack_size(process, 1, "JUMP_UNLESS")
+
         condition = process.stack.pop
+
         unless instruction.value.is_integer?
           raise TypeMismatchException.new("JUMP_UNLESS requires an integer offset")
         end
+
         offset = instruction.value.to_i64
-        unless condition.to_b
+
+        unless condition.to_bool
           new_counter = process.counter.to_i64 + offset
+
           if new_counter < 0 || new_counter >= process.instructions.size
             raise EmulationException.new("JUMP_UNLESS to invalid address: #{new_counter}")
           end
+
           process.counter = new_counter.to_u64
         end
+
         Value.new
       end
 
@@ -2025,7 +2057,7 @@ module Jelly
         check_stack_size(process, 1, "TRAP_EXIT")
 
         enable_value = process.stack.pop
-        enable = enable_value.to_b
+        enable = enable_value.to_bool
 
         old_value = @engine.process_links.traps_exit?(process.address)
         @engine.process_links.trap_exit(process.address, enable)

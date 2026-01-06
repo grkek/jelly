@@ -46,13 +46,13 @@ describe Jelly::VirtualMachine::Value do
       value = ValueWrapper.new(true)
       value.is_boolean?.should be_true
       value.type.should eq("Boolean")
-      value.to_b.should be_true
+      value.to_bool.should be_true
     end
 
     it "creates a boolean false value" do
       value = ValueWrapper.new(false)
       value.is_boolean?.should be_true
-      value.to_b.should be_false
+      value.to_bool.should be_false
     end
 
     it "creates a map value" do
@@ -298,69 +298,69 @@ describe Jelly::VirtualMachine::Value do
     end
   end
 
-  describe "#to_b" do
+  describe "#to_bool" do
     it "returns true for true boolean" do
-      ValueWrapper.new(true).to_b.should be_true
+      ValueWrapper.new(true).to_bool.should be_true
     end
 
     it "returns false for false boolean" do
-      ValueWrapper.new(false).to_b.should be_false
+      ValueWrapper.new(false).to_bool.should be_false
     end
 
     it "returns true for non-zero integer" do
-      ValueWrapper.new(42_i64).to_b.should be_true
+      ValueWrapper.new(42_i64).to_bool.should be_true
     end
 
     it "returns false for zero integer" do
-      ValueWrapper.new(0_i64).to_b.should be_false
+      ValueWrapper.new(0_i64).to_bool.should be_false
     end
 
     it "returns true for non-zero unsigned integer" do
-      ValueWrapper.new(42_u64).to_b.should be_true
+      ValueWrapper.new(42_u64).to_bool.should be_true
     end
 
     it "returns false for zero unsigned integer" do
-      ValueWrapper.new(0_u64).to_b.should be_false
+      ValueWrapper.new(0_u64).to_bool.should be_false
     end
 
     it "returns true for non-zero float" do
-      ValueWrapper.new(0.1).to_b.should be_true
+      ValueWrapper.new(0.1).to_bool.should be_true
     end
 
     it "returns false for zero float" do
-      ValueWrapper.new(0.0).to_b.should be_false
+      ValueWrapper.new(0.0).to_bool.should be_false
     end
 
     it "returns true for non-empty string" do
-      ValueWrapper.new("hello").to_b.should be_true
+      ValueWrapper.new("hello").to_bool.should be_true
     end
 
     it "returns false for empty string" do
-      ValueWrapper.new("").to_b.should be_false
+      ValueWrapper.new("").to_bool.should be_false
     end
 
     it "returns true for non-empty map" do
-      ValueWrapper.new({"a" => ValueWrapper.new(1_i64)}).to_b.should be_true
+      ValueWrapper.new({"a" => ValueWrapper.new(1_i64)}).to_bool.should be_true
     end
 
     it "returns false for empty map" do
-      ValueWrapper.new(Hash(String, ValueWrapper).new).to_b.should be_false
+      ValueWrapper.new(Hash(String, ValueWrapper).new).to_bool.should be_false
     end
 
     it "returns true for non-empty array" do
-      ValueWrapper.new([ValueWrapper.new(1_i64)]).to_b.should be_true
+      ValueWrapper.new([ValueWrapper.new(1_i64)]).to_bool.should be_true
     end
 
     it "returns false for empty array" do
-      ValueWrapper.new(Array(ValueWrapper).new).to_b.should be_false
+      ValueWrapper.new(Array(ValueWrapper).new).to_bool.should be_false
     end
 
     it "returns false for null" do
-      ValueWrapper.new.to_b.should be_false
+      ValueWrapper.new.to_bool.should be_false
     end
 
     it "returns true for custom types" do
-      ValueWrapper.new({1_u64, ValueWrapper.new("msg")}).to_b.should be_true
+      ValueWrapper.new({1_u64, ValueWrapper.new("msg")}).to_bool.should be_true
     end
   end
 
@@ -473,7 +473,7 @@ describe Jelly::VirtualMachine::Value do
     it "clones boolean value" do
       original = ValueWrapper.new(true)
       cloned = original.clone
-      cloned.to_b.should be_true
+      cloned.to_bool.should be_true
     end
 
     it "deep clones map value" do

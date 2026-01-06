@@ -50,6 +50,10 @@ module Jelly
       PUSH_NULL # Push a null value onto the stack
       # Stack: [] → [null]
 
+      PUSH_SYMBOL # Push a symbol value onto the stack
+      # Operand: String
+      # Stack: [] → [symbol]
+
       # Arithmetic operations
 
       ADD # Add top two numeric values

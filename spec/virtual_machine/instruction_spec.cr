@@ -36,7 +36,7 @@ describe Jelly::VirtualMachine::Instruction do
     it "creates instruction with code and boolean value" do
       instruction = InstructionWrapper.new(CodeWrapper::PUSH_BOOLEAN, ValueWrapper.new(true))
       instruction.code.should eq(CodeWrapper::PUSH_BOOLEAN)
-      instruction.value.to_b.should be_true
+      instruction.value.to_bool.should be_true
     end
 
     it "creates instruction with Tuple(UInt64, Value) for SEND" do
@@ -266,7 +266,7 @@ describe Jelly::VirtualMachine::Instruction do
 
   describe "string operation instructions" do
     it "creates CONCATENATE instruction" do
-      InstructionWrapper.new(CodeWrapper::CONCATENATE).code.should eq(CodeWrapper::CONCATENATE)
+      InstructionWrapper.new(CodeWrapper::STRING_CONCATENATE).code.should eq(CodeWrapper::STRING_CONCATENATE)
     end
 
     it "creates STRING_LENGTH instruction" do
@@ -274,7 +274,7 @@ describe Jelly::VirtualMachine::Instruction do
     end
 
     it "creates SUBSTRING instruction" do
-      InstructionWrapper.new(CodeWrapper::SUBSTRING).code.should eq(CodeWrapper::SUBSTRING)
+      InstructionWrapper.new(CodeWrapper::STRING_SUBSTRING).code.should eq(CodeWrapper::STRING_SUBSTRING)
     end
   end
 
