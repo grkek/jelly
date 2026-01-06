@@ -19,7 +19,7 @@ worker_instructions = [
 
   # Send HTTP request
   VirtualMachine::Instruction.new(VirtualMachine::Code::LOAD_LOCAL, VirtualMachine::Value.new(0_i64)),                                                                 # 8
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_STRING, VirtualMachine::Value.new("GET / HTTP/1.0\r\nHost: icanhazip.com\r\nConnection: close\r\n\r\n")), # 9
+  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_STRING, VirtualMachine::Value.new("GET / HTTP/1.1\r\nHost: icanhazip.com\r\nConnection: close\r\n\r\n")), # 9
   VirtualMachine::Instruction.new(VirtualMachine::Code::TCP_SEND),                                                                                                     # 10
   VirtualMachine::Instruction.new(VirtualMachine::Code::POP),                                                                                                          # 11
 
