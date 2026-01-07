@@ -950,8 +950,6 @@ module Jelly
           process.locals.push(Value.new)
         end
 
-        pp process.stack
-
         process.locals[index] = value
         value
       end
