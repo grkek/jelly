@@ -61,7 +61,7 @@ worker_instructions = [
   # Failure path (index 37)
   VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_STRING, VirtualMachine::Value.new("Connection failed")),
   VirtualMachine::Instruction.new(VirtualMachine::Code::PRINT_LINE),
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_STRING, VirtualMachine::Value.new("connect_failed")), # Non-normal exit
+  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_SYMBOL, VirtualMachine::Value.new(:error)), # Non-normal exit
   VirtualMachine::Instruction.new(VirtualMachine::Code::EXIT_SELF),
 ]
 
