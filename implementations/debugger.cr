@@ -31,7 +31,6 @@ debugger.add_breakpoint_at(2_u64) # Break at instruction 5
 debugger.add_breakpoint { |p| p.stack.size > 10 } # Break on large stack
 
 breakpoint = debugger.add_breakpoint { |p| p.counter == 10 }
-breakpoint.ignore_count = 3 # Skip first 3 hits
 
 # Disable a breakpoint temporarily
 breakpoint.disable

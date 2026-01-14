@@ -1,83 +1,117 @@
 require "../src/jelly"
 
-alias VirtualMachine = Jelly::VirtualMachine
+alias VM = Jelly::VirtualMachine
 
-engine = VirtualMachine::Engine.new
+engine = VM::Engine.new
+
+# Attach debugger with interactive handler
+debugger = engine.attach_debugger do |process, instruction|
+  puts "═" * 50
+  puts "Break at Process <#{process.address}>, counter: #{process.counter}"
+  puts "Instruction: #{instruction.try(&.code) || "none"}"
+  puts "Stack: #{process.stack.map(&.to_s)}"
+  puts "Locals: #{process.locals.map(&.to_s)}"
+  puts "═" * 50
+
+  print "] "
+  input = gets.try(&.chomp) || "c"
+
+  case input
+  when "c", "continue" then VM::Engine::Debugger::Action::Continue
+  when "s", "step"     then VM::Engine::Debugger::Action::Step
+  when "n", "next"     then VM::Engine::Debugger::Action::StepOver
+  when "q", "quit"     then VM::Engine::Debugger::Action::Abort
+  else                      VM::Engine::Debugger::Action::Continue
+  end
+end
+
+# Add breakpoints
+debugger.add_breakpoint_at(2_u64) # Break at instruction 5
+
+debugger.add_breakpoint { |p| p.stack.size > 10 } # Break on large stack
+
+breakpoint = debugger.add_breakpoint { |p| p.counter == 10 }
+
+# Disable a breakpoint temporarily
+breakpoint.disable
+
+# Check breakpoint stats
+puts "Breakpoint #{breakpoint.id} hit #{breakpoint.hit_count} times"
 
 worker_instructions = [
   # Connect to icanhazip.com
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_STRING, VirtualMachine::Value.new("icanhazip.com")), # 0
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_INTEGER, VirtualMachine::Value.new(80_i64)),         # 1
-  VirtualMachine::Instruction.new(VirtualMachine::Code::TCP_CONNECT),                                             # 2
-  VirtualMachine::Instruction.new(VirtualMachine::Code::DUPLICATE),                                               # 3
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_NULL),                                               # 4
-  VirtualMachine::Instruction.new(VirtualMachine::Code::EQUAL),                                                   # 5
-  VirtualMachine::Instruction.new(VirtualMachine::Code::JUMP_IF, VirtualMachine::Value.new(30_i64)),              # 6 -> jump to failure path
+  VM::Instruction.new(VM::Code::PUSH_STRING, VM::Value.new("icanhazip.com")), # 0
+  VM::Instruction.new(VM::Code::PUSH_INTEGER, VM::Value.new(80_i64)),         # 1
+  VM::Instruction.new(VM::Code::TCP_CONNECT),                                             # 2
+  VM::Instruction.new(VM::Code::DUPLICATE),                                               # 3
+  VM::Instruction.new(VM::Code::PUSH_NULL),                                               # 4
+  VM::Instruction.new(VM::Code::EQUAL),                                                   # 5
+  VM::Instruction.new(VM::Code::JUMP_IF, VM::Value.new(30_i64)),              # 6 -> jump to failure path
 
   # Success path - store socket in local 0
-  VirtualMachine::Instruction.new(VirtualMachine::Code::STORE_LOCAL, VirtualMachine::Value.new(0_i64)), # 7
+  VM::Instruction.new(VM::Code::STORE_LOCAL, VM::Value.new(0_i64)), # 7
 
   # Send HTTP request
-  VirtualMachine::Instruction.new(VirtualMachine::Code::LOAD_LOCAL, VirtualMachine::Value.new(0_i64)),                                                                 # 8
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_STRING, VirtualMachine::Value.new("GET / HTTP/1.1\r\nHost: icanhazip.com\r\nConnection: close\r\n\r\n")), # 9
-  VirtualMachine::Instruction.new(VirtualMachine::Code::TCP_SEND),                                                                                                     # 10
-  VirtualMachine::Instruction.new(VirtualMachine::Code::POP),                                                                                                          # 11
+  VM::Instruction.new(VM::Code::LOAD_LOCAL, VM::Value.new(0_i64)),                                                                 # 8
+  VM::Instruction.new(VM::Code::PUSH_STRING, VM::Value.new("GET / HTTP/1.1\r\nHost: icanhazip.com\r\nConnection: close\r\n\r\n")), # 9
+  VM::Instruction.new(VM::Code::TCP_SEND),                                                                                                     # 10
+  VM::Instruction.new(VM::Code::POP),                                                                                                          # 11
 
   # Receive response and convert to string
-  VirtualMachine::Instruction.new(VirtualMachine::Code::LOAD_LOCAL, VirtualMachine::Value.new(0_i64)),      # 12
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_INTEGER, VirtualMachine::Value.new(2048_i64)), # 13
-  VirtualMachine::Instruction.new(VirtualMachine::Code::TCP_RECEIVE),                                       # 14
-  VirtualMachine::Instruction.new(VirtualMachine::Code::BINARY_TO_STRING),                                  # 15
-  VirtualMachine::Instruction.new(VirtualMachine::Code::STORE_LOCAL, VirtualMachine::Value.new(1_i64)),     # 16 - store response in local 1
+  VM::Instruction.new(VM::Code::LOAD_LOCAL, VM::Value.new(0_i64)),      # 12
+  VM::Instruction.new(VM::Code::PUSH_INTEGER, VM::Value.new(2048_i64)), # 13
+  VM::Instruction.new(VM::Code::TCP_RECEIVE),                                       # 14
+  VM::Instruction.new(VM::Code::BINARY_TO_STRING),                                  # 15
+  VM::Instruction.new(VM::Code::STORE_LOCAL, VM::Value.new(1_i64)),     # 16 - store response in local 1
 
   # Find "\r\n\r\n" (end of headers)
-  VirtualMachine::Instruction.new(VirtualMachine::Code::LOAD_LOCAL, VirtualMachine::Value.new(1_i64)),       # 17
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_STRING, VirtualMachine::Value.new("\r\n\r\n")), # 18
-  VirtualMachine::Instruction.new(VirtualMachine::Code::STRING_INDEX),                                       # 19 - find index of blank line
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_INTEGER, VirtualMachine::Value.new(4_i64)),     # 20 - add 4 to skip past \r\n\r\n
-  VirtualMachine::Instruction.new(VirtualMachine::Code::ADD),                                                # 21
-  VirtualMachine::Instruction.new(VirtualMachine::Code::STORE_LOCAL, VirtualMachine::Value.new(2_i64)),      # 22 - store body start index
+  VM::Instruction.new(VM::Code::LOAD_LOCAL, VM::Value.new(1_i64)),       # 17
+  VM::Instruction.new(VM::Code::PUSH_STRING, VM::Value.new("\r\n\r\n")), # 18
+  VM::Instruction.new(VM::Code::STRING_INDEX),                                       # 19 - find index of blank line
+  VM::Instruction.new(VM::Code::PUSH_INTEGER, VM::Value.new(4_i64)),     # 20 - add 4 to skip past \r\n\r\n
+  VM::Instruction.new(VM::Code::ADD),                                                # 21
+  VM::Instruction.new(VM::Code::STORE_LOCAL, VM::Value.new(2_i64)),      # 22 - store body start index
 
   # Extract body (from body_start to end)
-  VirtualMachine::Instruction.new(VirtualMachine::Code::LOAD_LOCAL, VirtualMachine::Value.new(1_i64)),    # 23 - load response
-  VirtualMachine::Instruction.new(VirtualMachine::Code::LOAD_LOCAL, VirtualMachine::Value.new(2_i64)),    # 24 - load body start index
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_INTEGER, VirtualMachine::Value.new(50_i64)), # 25 - length (50 chars is plenty for an IP)
-  VirtualMachine::Instruction.new(VirtualMachine::Code::STRING_SUBSTRING),                                # 26
-  VirtualMachine::Instruction.new(VirtualMachine::Code::STRING_TRIM),                                     # 27 - trim whitespace
+  VM::Instruction.new(VM::Code::LOAD_LOCAL, VM::Value.new(1_i64)),    # 23 - load response
+  VM::Instruction.new(VM::Code::LOAD_LOCAL, VM::Value.new(2_i64)),    # 24 - load body start index
+  VM::Instruction.new(VM::Code::PUSH_INTEGER, VM::Value.new(50_i64)), # 25 - length (50 chars is plenty for an IP)
+  VM::Instruction.new(VM::Code::STRING_SUBSTRING),                                # 26
+  VM::Instruction.new(VM::Code::STRING_TRIM),                                     # 27 - trim whitespace
 
   # Print the IP
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_STRING, VirtualMachine::Value.new("Your IP: ")), # 28
-  VirtualMachine::Instruction.new(VirtualMachine::Code::SWAP),                                                # 29
-  VirtualMachine::Instruction.new(VirtualMachine::Code::STRING_CONCATENATE),                                  # 30
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PRINT_LINE),                                          # 31
+  VM::Instruction.new(VM::Code::PUSH_STRING, VM::Value.new("Your IP: ")), # 28
+  VM::Instruction.new(VM::Code::SWAP),                                                # 29
+  VM::Instruction.new(VM::Code::STRING_CONCATENATE),                                  # 30
+  VM::Instruction.new(VM::Code::PRINT_LINE),                                          # 31
 
   # Close socket
-  VirtualMachine::Instruction.new(VirtualMachine::Code::LOAD_LOCAL, VirtualMachine::Value.new(0_i64)),     # 32
-  VirtualMachine::Instruction.new(VirtualMachine::Code::TCP_CLOSE),                                        # 33
-  VirtualMachine::Instruction.new(VirtualMachine::Code::POP),                                              # 34
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_STRING, VirtualMachine::Value.new("normal")), # 35
-  VirtualMachine::Instruction.new(VirtualMachine::Code::EXIT_SELF),                                        # 36
+  VM::Instruction.new(VM::Code::LOAD_LOCAL, VM::Value.new(0_i64)),     # 32
+  VM::Instruction.new(VM::Code::TCP_CLOSE),                                        # 33
+  VM::Instruction.new(VM::Code::POP),                                              # 34
+  VM::Instruction.new(VM::Code::PUSH_STRING, VM::Value.new("normal")), # 35
+  VM::Instruction.new(VM::Code::EXIT_SELF),                                        # 36
 
   # Failure path (index 37)
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_STRING, VirtualMachine::Value.new("Connection failed")),
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PRINT_LINE),
-  VirtualMachine::Instruction.new(VirtualMachine::Code::PUSH_SYMBOL, VirtualMachine::Value.new(:error)), # Non-normal exit
-  VirtualMachine::Instruction.new(VirtualMachine::Code::EXIT_SELF),
+  VM::Instruction.new(VM::Code::PUSH_STRING, VM::Value.new("Connection failed")),
+  VM::Instruction.new(VM::Code::PRINT_LINE),
+  VM::Instruction.new(VM::Code::PUSH_SYMBOL, VM::Value.new(:error)), # Non-normal exit
+  VM::Instruction.new(VM::Code::EXIT_SELF),
 ]
 
 # Create supervisor
 supervisor = engine.create_supervisor(
-  strategy: VirtualMachine::Supervisor::RestartStrategy::OneForOne,
+  strategy: VM::Supervisor::RestartStrategy::OneForOne,
   max_restarts: 3,
   restart_window: 5.seconds
 )
 
 Log.info { "Supervisor created with address <#{supervisor.address}>" }
 
-worker = VirtualMachine::Supervisor::Child::Specification.new(
+worker = VM::Supervisor::Child::Specification.new(
   id: "worker",
   instructions: worker_instructions,
-  restart: VirtualMachine::Supervisor::RestartType::Transient,
+  restart: VM::Supervisor::RestartType::Transient,
   max_restarts: 3,
   restart_window: 5.seconds
 )
@@ -86,19 +120,13 @@ supervisor.add_child(worker)
 
 Log.info { "Starting VM with properly supervised worker..." }
 
-Log.setup(:debug)
-
-engine.add_breakpoint do |process|
-  process.counter == 10 # Break when counter reaches 10
-
-  pp process
-
-  true
-end
-
+# Run the engine
 engine.run
 
-sleep 5.seconds
+# Detach debugger when done
+engine.detach_debugger
 
-Log.info { "Final fault tolerance stats: #{engine.fault_tolerance_stats}" }
+Log.info { "Final fault tolerance stats: #{engine.fault_tolerance_statistics}" }
 Log.info { "Supervisor child status: #{supervisor.child_status}" }
+
+sleep 5.seconds
