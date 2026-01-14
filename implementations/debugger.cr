@@ -26,12 +26,12 @@ debugger = engine.attach_debugger do |process, instruction|
 end
 
 # Add breakpoints
-debugger.add_breakpoint_at(2_u64)  # Break at instruction 5
+debugger.add_breakpoint_at(2_u64) # Break at instruction 5
 
-debugger.add_breakpoint { |p| p.stack.size > 10 }  # Break on large stack
+debugger.add_breakpoint { |p| p.stack.size > 10 } # Break on large stack
 
 breakpoint = debugger.add_breakpoint { |p| p.counter == 10 }
-breakpoint.ignore_count = 3  # Skip first 3 hits
+breakpoint.ignore_count = 3 # Skip first 3 hits
 
 # Disable a breakpoint temporarily
 breakpoint.disable
@@ -42,9 +42,9 @@ puts "Breakpoint #{breakpoint.id} hit #{breakpoint.hit_count} times"
 instructions = [
   VM::Instruction.new(VM::Code::PUSH_INTEGER, VM::Value.new(10_i64)),
   VM::Instruction.new(VM::Code::PUSH_INTEGER, VM::Value.new(5_i64)),
-  VM::Instruction.new(VM::Code::ADD),                                    # Stack: [15]
+  VM::Instruction.new(VM::Code::ADD), # Stack: [15]
   VM::Instruction.new(VM::Code::PUSH_INTEGER, VM::Value.new(3_i64)),
-  VM::Instruction.new(VM::Code::MULTIPLY),                               # Stack: [45]
+  VM::Instruction.new(VM::Code::MULTIPLY), # Stack: [45]
   VM::Instruction.new(VM::Code::PRINT_LINE),
   VM::Instruction.new(VM::Code::HALT),
 ]

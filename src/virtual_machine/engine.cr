@@ -15,7 +15,6 @@ module Jelly
         end
       end
 
-
       class Debugger
         enum Action
           Continue # Resume normal execution

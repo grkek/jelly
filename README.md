@@ -90,7 +90,7 @@ engine = VM::Engine.new
 
 # Create a worker that receives and processes messages
 worker_instructions = [
-  VM::Instruction.new(VM::Code::RECEIVE),                                    # Wait for message
+  VM::Instruction.new(VM::Code::RECEIVE), # Wait for message
   VM::Instruction.new(VM::Code::PUSH_STRING, VM::Value.new("Received: ")),
   VM::Instruction.new(VM::Code::SWAP),
   VM::Instruction.new(VM::Code::STRING_CONCATENATE),
@@ -140,7 +140,7 @@ engine = VM::Engine.new
 
 # Create a supervisor
 supervisor = engine.create_supervisor(
-  strategy: VM::Supervisor::RestartStrategy::OneForOne,  # Only restart failed child
+  strategy: VM::Supervisor::RestartStrategy::OneForOne, # Only restart failed child
   max_restarts: 3,
   restart_window: 5.seconds
 )
@@ -149,7 +149,7 @@ supervisor = engine.create_supervisor(
 child_specification = VM::Supervisor::Child::Specification.new(
   id: "worker",
   instructions: worker_instructions,
-  restart: VM::Supervisor::RestartType::Transient,  # Restart only on abnormal exit
+  restart: VM::Supervisor::RestartType::Transient, # Restart only on abnormal exit
   max_restarts: 3,
   restart_window: 5.seconds
 )
@@ -379,7 +379,7 @@ instructions = [
   VM::Instruction.new(VM::Code::LOAD_LOCAL, VM::Value.new(1_u64)),
   VM::Instruction.new(VM::Code::PUSH_INTEGER, VM::Value.new(0_i64)),
   VM::Instruction.new(VM::Code::GREATER_THAN),
-  VM::Instruction.new(VM::Code::JUMP_UNLESS, VM::Value.new(9_i64)),  # Exit loop
+  VM::Instruction.new(VM::Code::JUMP_UNLESS, VM::Value.new(9_i64)), # Exit loop
   
   # result = result * n
   VM::Instruction.new(VM::Code::LOAD_LOCAL, VM::Value.new(0_u64)),
@@ -421,7 +421,7 @@ instructions = [
   VM::Instruction.new(VM::Code::PUSH_STRING, VM::Value.new("icanhazip.com")),
   VM::Instruction.new(VM::Code::PUSH_INTEGER, VM::Value.new(80_i64)),
   VM::Instruction.new(VM::Code::TCP_CONNECT),
-  VM::Instruction.new(VM::Code::STORE_LOCAL, VM::Value.new(0_i64)),  # Store socket
+  VM::Instruction.new(VM::Code::STORE_LOCAL, VM::Value.new(0_i64)), # Store socket
   
   # Send HTTP request
   VM::Instruction.new(VM::Code::LOAD_LOCAL, VM::Value.new(0_i64)),
@@ -492,13 +492,13 @@ ping_message = VM::Value.new({
 pong_instructions = [
   # Receive message - will be a map {from: address, message: "ping"}
   VM::Instruction.new(VM::Code::RECEIVE),
-  VM::Instruction.new(VM::Code::STORE_LOCAL, VM::Value.new(0_u64)),     # Store full message
+  VM::Instruction.new(VM::Code::STORE_LOCAL, VM::Value.new(0_u64)), # Store full message
 
   # Get sender address from message
   VM::Instruction.new(VM::Code::LOAD_LOCAL, VM::Value.new(0_u64)),
   VM::Instruction.new(VM::Code::PUSH_STRING, VM::Value.new("from")),
   VM::Instruction.new(VM::Code::MAP_GET),
-  VM::Instruction.new(VM::Code::STORE_LOCAL, VM::Value.new(1_u64)),     # Store sender address in local 1
+  VM::Instruction.new(VM::Code::STORE_LOCAL, VM::Value.new(1_u64)), # Store sender address in local 1
 
   # Print received message
   VM::Instruction.new(VM::Code::LOAD_LOCAL, VM::Value.new(0_u64)),
@@ -559,7 +559,7 @@ engine = VM::Engine.new
 
 # Create supervisor with restart strategy
 supervisor = engine.create_supervisor(
-  strategy: VM::RestartStrategy::OneForOne,  # Only restart the failed child
+  strategy: VM::RestartStrategy::OneForOne, # Only restart the failed child
   max_restarts: 5,
   restart_window: 10.seconds
 )
@@ -577,7 +577,7 @@ worker_instructions = [
 worker_specification = VM::Supervisor::Child::Specification.new(
   id: "worker",
   instructions: worker_instructions,
-  restart: VM::Supervisor::RestartType::Permanent,  # Always restart
+  restart: VM::Supervisor::RestartType::Permanent, # Always restart
   max_restarts: 3,
   restart_window: 5.seconds
 )
@@ -594,12 +594,12 @@ The engine can be configured via the `Configuration` object:
 ```crystal
 engine = VM::Engine.new
 
-engine.configuration.max_stack_size = 1000         # Maximum stack depth
-engine.configuration.max_mailbox_size = 10000      # Maximum mailbox messages
-engine.configuration.iteration_limit = 1000000     # Max execution iterations
-engine.configuration.execution_delay = 0.001       # Delay between iterations
-engine.configuration.deadlock_detection = true     # Enable deadlock detection
-engine.configuration.enable_message_acks = false   # Message acknowledgments
+engine.configuration.max_stack_size = 1000        # Maximum stack depth
+engine.configuration.max_mailbox_size = 10000     # Maximum mailbox messages
+engine.configuration.iteration_limit = 1000000    # Max execution iterations
+engine.configuration.execution_delay = 0.001      # Delay between iterations
+engine.configuration.deadlock_detection = true    # Enable deadlock detection
+engine.configuration.enable_message_acks = false  # Message acknowledgments
 engine.configuration.auto_reactivate_processes = true
 ```
 
@@ -644,7 +644,7 @@ instructions = [
   VM::Instruction.new(VM::Code::PUSH_INTEGER, VM::Value.new(10_i64)),
   VM::Instruction.new(VM::Code::PUSH_INTEGER, VM::Value.new(20_i64)),
   VM::Instruction.new(VM::Code::ADD),
-  VM::Instruction.new(VM::Code::PRINT_LINE),  # Breakpoint here
+  VM::Instruction.new(VM::Code::PRINT_LINE), # Breakpoint here
   VM::Instruction.new(VM::Code::HALT),
 ]
 

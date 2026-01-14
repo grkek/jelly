@@ -89,7 +89,7 @@ Log.info { "Starting VM with properly supervised worker..." }
 Log.setup(:debug)
 
 engine.add_breakpoint do |process|
-  process.counter == 10  # Break when counter reaches 10
+  process.counter == 10 # Break when counter reaches 10
 
   pp process
 

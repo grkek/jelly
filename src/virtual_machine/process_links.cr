@@ -9,7 +9,7 @@ module Jelly
       @links : Hash(UInt64, Set(UInt64))
       @monitors : Hash(UInt64, Set(Process::MonitorReference))     # Processes being monitored by key
       @monitored_by : Hash(UInt64, Set(Process::MonitorReference)) # Processes monitoring key
-      @trap_exit : Set(UInt64)                      # Processes that trap exits
+      @trap_exit : Set(UInt64)                                     # Processes that trap exits
       @mutex : Mutex
 
       def initialize
