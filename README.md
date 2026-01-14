@@ -653,10 +653,10 @@ engine.processes << process
 engine.run
 ```
 
-### Fault Tolerance Stats
+### Fault Tolerance Statistics
 
 ```crystal
-stats = engine.fault_tolerance_stats
+stats = engine.fault_tolerance_statistics
 puts stats
 # => {links: 2, monitors: 1, trapping: 0, supervisors: 1, crash_dumps: 0}
 ```
