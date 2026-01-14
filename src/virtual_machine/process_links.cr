@@ -7,15 +7,15 @@ module Jelly
 
       # Links are stored bidirectionally
       @links : Hash(UInt64, Set(UInt64))
-      @monitors : Hash(UInt64, Set(MonitorRef))     # Processes being monitored by key
-      @monitored_by : Hash(UInt64, Set(MonitorRef)) # Processes monitoring key
+      @monitors : Hash(UInt64, Set(Process::MonitorReference))     # Processes being monitored by key
+      @monitored_by : Hash(UInt64, Set(Process::MonitorReference)) # Processes monitoring key
       @trap_exit : Set(UInt64)                      # Processes that trap exits
       @mutex : Mutex
 
       def initialize
         @links = Hash(UInt64, Set(UInt64)).new { |h, k| h[k] = Set(UInt64).new }
-        @monitors = Hash(UInt64, Set(MonitorRef)).new { |h, k| h[k] = Set(MonitorRef).new }
-        @monitored_by = Hash(UInt64, Set(MonitorRef)).new { |h, k| h[k] = Set(MonitorRef).new }
+        @monitors = Hash(UInt64, Set(Process::MonitorReference)).new { |h, k| h[k] = Set(Process::MonitorReference).new }
+        @monitored_by = Hash(UInt64, Set(Process::MonitorReference)).new { |h, k| h[k] = Set(Process::MonitorReference).new }
         @trap_exit = Set(UInt64).new
         @mutex = Mutex.new
       end
@@ -61,9 +61,9 @@ module Jelly
       end
 
       # Create a unidirectional monitor from watcher to watched
-      # Returns a MonitorRef that can be used to demonitor
-      def monitor(watcher : UInt64, watched : UInt64) : MonitorRef
-        ref = MonitorRef.new(watcher, watched)
+      # Returns a Process::MonitorReference that can be used to demonitor
+      def monitor(watcher : UInt64, watched : UInt64) : Process::MonitorReference
+        ref = Process::MonitorReference.new(watcher, watched)
 
         @mutex.synchronize do
           @monitors[watcher].add(ref)
@@ -75,7 +75,7 @@ module Jelly
       end
 
       # Remove a monitor by reference
-      def demonitor(ref : MonitorRef) : Bool
+      def demonitor(ref : Process::MonitorReference) : Bool
         @mutex.synchronize do
           removed1 = @monitors[ref.watcher].delete(ref)
           removed2 = @monitored_by[ref.watched].delete(ref)
@@ -89,14 +89,14 @@ module Jelly
       end
 
       # Get all monitor refs for processes that watcher is monitoring
-      def get_monitors(watcher : UInt64) : Array(MonitorRef)
+      def get_monitors(watcher : UInt64) : Array(Process::MonitorReference)
         @mutex.synchronize do
           @monitors[watcher].to_a
         end
       end
 
       # Get all monitor refs for processes monitoring watched
-      def get_watchers(watched : UInt64) : Array(MonitorRef)
+      def get_watchers(watched : UInt64) : Array(Process::MonitorReference)
         @mutex.synchronize do
           @monitored_by[watched].to_a
         end
@@ -125,7 +125,7 @@ module Jelly
 
       # Clean up all links and monitors for a process that has exited
       # Returns tuple of (linked_processes, monitor_refs_to_notify)
-      def cleanup(pid : UInt64) : Tuple(Array(UInt64), Array(MonitorRef))
+      def cleanup(pid : UInt64) : Tuple(Array(UInt64), Array(Process::MonitorReference))
         @mutex.synchronize do
           # Get linked processes
           linked = @links[pid].to_a

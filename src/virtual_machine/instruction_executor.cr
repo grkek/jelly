@@ -3,9 +3,7 @@ module Jelly
     class InstructionExecutor
       Log = ::Log.for(self)
 
-      # TCP socket management - handles for user code
-      @next_socket_id : UInt64 = 1u64
-      @sockets : Hash(UInt64, TCPSocket) = Hash(UInt64, TCPSocket).new
+      @socket_registry : SocketRegistry = SocketRegistry.new
 
       def initialize(@engine : Engine)
       end
@@ -151,7 +149,7 @@ module Jelly
             process.state = Process::State::DEAD
 
             # Notify linked processes via fault handler
-            reason = ExitReason.custom(ex.message || "Unknown error")
+            reason = Process::ExitReason.custom(ex.message || "Unknown error")
             process.exit_reason = reason
             @engine.fault_handler.handle_exit(process, reason)
 
@@ -437,7 +435,9 @@ module Jelly
           raise TypeMismatchException.new("DIVIDE requires two numeric values")
         end
 
-        if b.to_f64 == 0.0
+        is_zero = b.is_float? ? b.to_f64 == 0.0 : b.to_i64 == 0
+
+        if is_zero
           raise EmulationException.new("Division by zero")
         end
 
@@ -1282,10 +1282,7 @@ module Jelly
 
         begin
           socket = TCPSocket.new(host, port)
-          socket_id = @next_socket_id
-
-          @next_socket_id += 1
-          @sockets[socket_id] = socket
+          socket_id = @socket_registry.register(socket)
 
           result = Value.new(socket_id.to_i64)
           check_stack_capacity(process)
@@ -1300,7 +1297,7 @@ module Jelly
         end
       end
 
-      # Send data to a TCP socket
+      # Send data to TCP socket
       private def execute_tcp_send(process : Process) : Value
         process.counter += 1
 
@@ -1308,14 +1305,10 @@ module Jelly
         socket_id_val = process.stack.pop
 
         unless socket_id_val.is_integer?
-          raise TypeMismatchException.new("TCP_SEND requires socket_id (integer) and data (string or binary)")
+          raise TypeMismatchException.new("TCP_SEND requires socket_id (integer)")
         end
 
         socket_id = socket_id_val.to_i64.to_u64
-        socket = @sockets[socket_id]?
-        unless socket
-          raise EmulationException.new("Invalid socket ID: #{socket_id}")
-        end
 
         # Accept either String or Slice(UInt8)
         slice : Slice(UInt8) = if data_val.is_string?
@@ -1326,56 +1319,51 @@ module Jelly
           raise TypeMismatchException.new("TCP_SEND data must be String or binary")
         end
 
-        begin
-          socket.write(slice) # This blocks until ALL binary are sent or error
-          binary_written = slice.size.to_i64
-        rescue ex
-          Log.warn { "Process <#{process.address}> TCP send failed: #{ex.message}" }
-          binary_written = -1_i64 # or -1, depending on your convention
+        bytes_written = @socket_registry.with_socket!(socket_id) do |socket|
+          begin
+            socket.write(slice)
+            slice.size.to_i64
+          rescue ex
+            Log.warn { "Process <#{process.address}> TCP send failed: #{ex.message}" }
+            -1_i64
+          end
         end
 
-        Log.debug { "Process <#{process.address}> sent #{binary_written} binary on socket #{socket_id}" }
+        Log.debug { "Process <#{process.address}> sent #{bytes_written} bytes on socket #{socket_id}" }
 
-        result = Value.new(binary_written)
+        result = Value.new(bytes_written)
         check_stack_capacity(process)
         process.stack.push(result)
-
         result
       end
 
-      # Receive data from a TCP socket
+      # Receive data from TCP socket
       private def execute_tcp_receive(process : Process) : Value
         process.counter += 1
 
-        max_binary_value = process.stack.pop
+        max_bytes_value = process.stack.pop
         socket_id_value = process.stack.pop
 
-        unless socket_id_value.is_integer? && max_binary_value.is_integer?
-          raise TypeMismatchException.new("TCP_RECEIVE requires socket_id (int) and max_binary (int)")
+        unless socket_id_value.is_integer? && max_bytes_value.is_integer?
+          raise TypeMismatchException.new("TCP_RECEIVE requires socket_id (int) and max_bytes (int)")
         end
 
         socket_id = socket_id_value.to_i64.to_u64
-        max_binary = max_binary_value.to_i64.to_i32
+        max_bytes = max_bytes_value.to_i64.to_i32
 
-        raise EmulationException.new("TCP_RECEIVE max_binary must be > 0") if max_binary <= 0
+        raise EmulationException.new("TCP_RECEIVE max_bytes must be > 0") if max_bytes <= 0
 
-        socket = @sockets[socket_id]?
-        unless socket
-          raise EmulationException.new("Invalid socket ID: #{socket_id}")
+        received_data = @socket_registry.with_socket!(socket_id) do |socket|
+          buffer = Slice(UInt8).new(max_bytes)
+          bytes_read = socket.read(buffer)
+          buffer[0, bytes_read]
         end
 
-        buffer = Slice(UInt8).new(max_binary)
-        binary_read = socket.read(buffer)
-
-        received_data = buffer[0, binary_read]
+        Log.debug { "Process <#{process.address}> received #{received_data.size} bytes on socket #{socket_id}" }
 
         result = Value.new(received_data)
-
-        Log.debug { "Process <#{process.address}> received #{binary_read} binary on socket #{socket_id}" }
-
         check_stack_capacity(process)
         process.stack.push(result)
-
         result
       end
 
@@ -1390,19 +1378,13 @@ module Jelly
         end
 
         socket_id = socket_id_value.to_i64.to_u64
+        closed = @socket_registry.close(socket_id)
 
-        if socket = @sockets.delete(socket_id)
-          socket.close
-          result = Value.new(true)
-        else
-          result = Value.new(false)
-        end
+        Log.debug { "Process <#{process.address}> closed socket #{socket_id}: #{closed}" }
 
-        Log.debug { "Process <#{process.address}> closed socket #{socket_id}" }
-
+        result = Value.new(closed)
         check_stack_capacity(process)
         process.stack.push(result)
-
         result
       end
 
@@ -1477,7 +1459,7 @@ module Jelly
                                 array_value = process.stack.pop
                                 Box(Array(Instruction)).unbox(array_value.pointer)
                               else
-                                process.instructions
+                                process.instructions.dup
                               end
 
         new_process = @engine.process_manager.create_process(instructions: instructions_to_use)
@@ -1835,7 +1817,6 @@ module Jelly
       end
 
       # Kill a process by address
-      # Kill a process by address
       private def execute_kill(process : Process) : Value
         process.counter += 1
         check_stack_size(process, 1, "KILL")
@@ -1851,17 +1832,17 @@ module Jelly
         end
         address = pid.to_u64
 
-        # Only target processes that are currently ALIVE
-        target = @engine.processes.find { |p| p.address == address && p.state == Process::State::ALIVE }
+        # Only target processes that are currently not DEAD
+        target = @engine.processes.find { |p| p.address == address && p.state != Process::State::DEAD }
 
         if target
           target.state = Process::State::DEAD
-          target.exit_reason = ExitReason.kill if target.responds_to?(:exit_reason=)
+          target.exit_reason = Process::ExitReason.kill if target.responds_to?(:exit_reason=)
 
           Log.debug { "Process <#{process.address}> killed process <#{address}>" }
 
           # Important: notify links, monitors, supervisors, etc.
-          @engine.fault_handler.handle_exit(target, ExitReason.kill)
+          @engine.fault_handler.handle_exit(target, Process::ExitReason.kill)
 
           check_stack_capacity(process)
           process.stack.push(Value.new(true))
@@ -2276,8 +2257,8 @@ module Jelly
           Value.new(ref.id.to_i64)
         else
           # Target doesn't exist - immediately send DOWN message
-          ref = MonitorRef.new(process.address, target_pid)
-          down = DownMessage.new(ref, target_pid, ExitReason.invalid_process)
+          ref = Process::MonitorReference.new(process.address, target_pid)
+          down = Process::DownMessage.new(ref, target_pid, Process::ExitReason.invalid_process)
 
           message = Message.new(target_pid, down.to_value)
           process.mailbox.push(message)
@@ -2351,11 +2332,11 @@ module Jelly
         reason_str = reason_value.to_s
 
         reason = if reason_str == "kill"
-                   ExitReason.kill
+                   Process::ExitReason.kill
                  elsif reason_str == "normal"
-                   ExitReason.normal
+                   Process::ExitReason.normal
                  else
-                   ExitReason.custom(reason_str)
+                   Process::ExitReason.custom(reason_str)
                  end
 
         @engine.fault_handler.exit_process(process.address, target_pid, reason)
@@ -2373,11 +2354,11 @@ module Jelly
         reason_str = reason_value.to_s
 
         reason = if reason_str == "normal"
-                   ExitReason.normal
+                   Process::ExitReason.normal
                  elsif reason_str == "shutdown"
-                   ExitReason.shutdown
+                   Process::ExitReason.shutdown
                  else
-                   ExitReason.custom(reason_str)
+                   Process::ExitReason.custom(reason_str)
                  end
 
         process.state = Process::State::DEAD

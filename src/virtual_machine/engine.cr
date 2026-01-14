@@ -3,14 +3,157 @@ module Jelly
     class Engine
       Log = ::Log.for(self)
 
+      class CustomHandler
+        @block : Process, Instruction -> Value
+
+        def initialize(&block : Process, Instruction -> Value)
+          @block = block
+        end
+
+        def call(process : Process, instruction : Instruction) : Value
+          @block.call(process, instruction)
+        end
+      end
+
+
+      class Debugger
+        enum Action
+          Continue # Resume normal execution
+          Step     # Execute one instruction then break
+          StepOver # Execute until next instruction in current call frame
+          Abort    # Stop the process
+        end
+
+        Log = ::Log.for(self)
+
+        @breakpoints : Array(Breakpoint) = [] of Breakpoint
+        @step_mode : Bool = false
+        @step_over_depth : Int32? = nil
+        @handler : (Process, Instruction?) -> Action
+
+        def initialize(&@handler : (Process, Instruction?) -> Action)
+        end
+
+        def add_breakpoint(&condition : Process -> Bool) : Breakpoint
+          bp = Breakpoint.new(&condition)
+          @breakpoints << bp
+          bp
+        end
+
+        def add_breakpoint_at(address : UInt64) : Breakpoint
+          add_breakpoint { |p| p.counter == address }
+        end
+
+        def remove_breakpoint(breakpoint : Breakpoint) : Bool
+          @breakpoints.delete(breakpoint) != nil
+        end
+
+        def clear_breakpoints
+          @breakpoints.clear
+        end
+
+        def breakpoints : Array(Breakpoint)
+          @breakpoints
+        end
+
+        def should_break?(process : Process, instruction : Instruction?) : Bool
+          # Check step mode
+          if @step_mode
+            return true
+          end
+
+          # Check step-over mode
+          if depth = @step_over_depth
+            if process.call_stack.size <= depth
+              @step_over_depth = nil
+              return true
+            end
+          end
+
+          # Check breakpoints
+          @breakpoints.any?(&.check(process))
+        end
+
+        def handle(process : Process, instruction : Instruction?) : Action
+          @step_mode = false
+
+          Log.debug { "Debugger: Process <#{process.address}> stopped at #{process.counter}" }
+
+          action = @handler.call(process, instruction)
+
+          case action
+          when .step?
+            @step_mode = true
+          when .step_over?
+            @step_over_depth = process.call_stack.size
+          when .abort?
+            process.state = Process::State::DEAD
+          end
+
+          action
+        end
+
+        def stepping? : Bool
+          @step_mode || @step_over_depth != nil
+        end
+      end
+
+      class Breakpoint
+        getter id : UInt64
+        getter? enabled : Bool = true
+        getter hit_count : Int32 = 0
+        property ignore_count : Int32 = 0
+
+        @@next_id : UInt64 = 0_u64
+
+        @condition : Process -> Bool
+
+        def initialize(&@condition : Process -> Bool)
+          @id = @@next_id
+          @@next_id += 1
+        end
+
+        def check(process : Process) : Bool
+          return false unless @enabled
+
+          if @condition.call(process)
+            @hit_count += 1
+
+            # Skip if we haven't hit ignore_count yet
+            if @hit_count <= @ignore_count
+              return false
+            end
+
+            true
+          else
+            false
+          end
+        end
+
+        def enable : self
+          @enabled = true
+          self
+        end
+
+        def disable : self
+          @enabled = false
+          self
+        end
+
+        def reset_hit_count : self
+          @hit_count = 0
+          self
+        end
+      end
+
       property processes : Array(Process) = [] of Process
       property configuration : Configuration = Configuration.new
-      property custom_handlers : Hash(Code, Proc(Process, Instruction, Value)) = {} of Code => Proc(Process, Instruction, Value)
-      property breakpoints : Array(Proc(Process, Bool)) = [] of Proc(Process, Bool)
+      property custom_handlers : Hash(Code, CustomHandler) = {} of Code => CustomHandler
       property process_registry : ProcessRegistry = ProcessRegistry.new
       property delayed_messages : Array(Tuple(Time, UInt64, UInt64, Value)) = [] of Tuple(Time, UInt64, UInt64, Value)
       property reactivation_queue : Array(Process) = [] of Process
       property last_cleanup_time : Time = Time.utc
+      property debugger : Debugger? = nil
 
       # Fault tolerance properties
       property process_links : ProcessLinks = ProcessLinks.new
@@ -38,8 +181,32 @@ module Jelly
         @fault_handler ||= FaultHandler.new(self)
       end
 
+      # Add a custom instruction handler using a block
+      def on_instruction(code : Code, &block : Process, Instruction -> Value)
+        @custom_handlers[code] = CustomHandler.new(&block)
+      end
+
+      # Attach a debugger to the engine
+      def attach_debugger(&handler : (Process, Instruction?) -> Debugger::Action) : Debugger
+        @debugger = Debugger.new(&handler)
+        @debugger.not_nil!
+      end
+
+      # Detach the debugger
+      def detach_debugger
+        @debugger = nil
+      end
+
       def execute(process : Process, instruction : Instruction) : Value
         return Value.new if process.state != Process::State::ALIVE
+
+        # Check debugger before execution
+        if dbg = @debugger
+          if dbg.should_break?(process, instruction)
+            action = dbg.handle(process, instruction)
+            return Value.new if action.abort?
+          end
+        end
 
         process.reductions += 1 if process.responds_to?(:reductions)
 
@@ -66,7 +233,8 @@ module Jelly
         end
 
         process.state = Process::State::DEAD
-        reason = ExitReason.exception(exception)
+        process.exception_handlers.clear
+        reason = Process::ExitReason.exception(exception)
         process.exit_reason = reason if process.responds_to?(:exit_reason=)
 
         dump = Recovery.create_crash_dump(process, reason)
@@ -150,7 +318,6 @@ module Jelly
             break
           end
 
-          check_breakpoints
           delayed_delivered = deliver_delayed_messages
 
           now = Time.utc
@@ -183,7 +350,7 @@ module Jelly
                 if p.state == Process::State::WAITING || p.state == Process::State::STALE || p.state == Process::State::BLOCKED
                   p.state = Process::State::DEAD
                   completed_processes.add(p.address)
-                  fault_handler.handle_exit(p, ExitReason.custom("deadlock"))
+                  fault_handler.handle_exit(p, Process::ExitReason.custom("deadlock"))
                 end
               end
               raise DeadlockException.new("Deadlock detected - terminating execution")
@@ -208,7 +375,7 @@ module Jelly
       end
 
       def create_supervisor(
-        strategy : RestartStrategy = RestartStrategy::OneForOne,
+        strategy : Supervisor::RestartStrategy = Supervisor::RestartStrategy::OneForOne,
         max_restarts : Int32 = 3,
         restart_window : Time::Span = 5.seconds,
       ) : Supervisor
@@ -238,37 +405,23 @@ module Jelly
 
       def exit_process(pid : UInt64, reason : String)
         exit_reason = case reason
-                      when "normal"   then ExitReason.normal
-                      when "kill"     then ExitReason.kill
-                      when "shutdown" then ExitReason.shutdown
-                      else                 ExitReason.custom(reason)
+                      when "normal"   then Process::ExitReason.normal
+                      when "kill"     then Process::ExitReason.kill
+                      when "shutdown" then Process::ExitReason.shutdown
+                      else                 Process::ExitReason.custom(reason)
                       end
         fault_handler.kill_process(pid, exit_reason)
       end
 
-      def fault_tolerance_stats : NamedTuple(links: Int32, monitors: Int32, trapping: Int32, supervisors: Int32, crash_dumps: Int32)
-        link_stats = @process_links.stats
+      def fault_tolerance_statistics : NamedTuple(links: Int32, monitors: Int32, trapping: Int32, supervisors: Int32, crash_dumps: Int32)
+        link_statistics = @process_links.stats
         {
-          links:       link_stats[:links],
-          monitors:    link_stats[:monitors],
-          trapping:    link_stats[:trapping],
+          links:       link_statistics[:links],
+          monitors:    link_statistics[:monitors],
+          trapping:    link_statistics[:trapping],
           supervisors: @supervisor_registry.all.size,
           crash_dumps: @crash_dump_storage.all.size,
         }
-      end
-
-      private def check_breakpoints
-        processes.each do |process|
-          next unless process.state == Process::State::ALIVE
-
-          @breakpoints.each do |condition|
-            if condition.call(process)
-              Log.info { "Breakpoint hit for Process <#{process.address}>" }
-              process.state = Process::State::STALE
-              break
-            end
-          end
-        end
       end
 
       private def log_final_status(iterations : Int32)
@@ -282,7 +435,7 @@ module Jelly
         end
 
         Log.debug { "Final VM state: #{process_manager.dump_state}" }
-        Log.debug { "Fault tolerance stats: #{fault_tolerance_stats}" }
+        Log.debug { "Fault tolerance stats: #{fault_tolerance_statistics}" }
       end
 
       def inspect_process(address : UInt64) : String?

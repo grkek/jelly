@@ -1,111 +1,113 @@
 module Jelly
   module VirtualMachine
-    # Supervision strategy determines how to handle child failures
-    enum RestartStrategy
-      OneForOne       # Only restart the failed child
-      OneForAll       # Restart all children when one fails
-      RestForOne      # Restart the failed child and all children started after it
-      SimpleOneForOne # Like one_for_one but for dynamic children with same spec
-    end
-
-    # Restart type for individual children
-    enum RestartType
-      Permanent # Always restart
-      Transient # Restart only on abnormal exit
-      Temporary # Never restart
-    end
-
-    # Shutdown behavior for children
-    enum ShutdownType
-      Brutal   # Kill immediately
-      Timeout  # Wait for graceful shutdown with timeout
-      Infinity # Wait forever for graceful shutdown
-    end
-
-    # Child specification for supervisor
-    class Specification
-      property id : String
-      property instructions : Array(Instruction)
-      property subroutines : Hash(String, Subroutine)
-      property globals : Hash(String, Value)
-      property restart : RestartType
-      property shutdown : ShutdownType
-      property shutdown_timeout : Time::Span
-      property max_restarts : Int32
-      property restart_window : Time::Span
-
-      def initialize(
-        @id : String,
-        @instructions : Array(Instruction),
-        @subroutines : Hash(String, Subroutine) = {} of String => Subroutine,
-        @globals : Hash(String, Value) = {} of String => Value,
-        @restart : RestartType = RestartType::Permanent,
-        @shutdown : ShutdownType = ShutdownType::Timeout,
-        @shutdown_timeout : Time::Span = 5.seconds,
-        @max_restarts : Int32 = 3,
-        @restart_window : Time::Span = 5.seconds,
-      )
-      end
-
-      def clone : Specification
-        Specification.new(
-          id: @id,
-          instructions: @instructions.map(&.clone),
-          subroutines: @subroutines.dup,
-          globals: @globals.transform_values(&.clone),
-          restart: @restart,
-          shutdown: @shutdown,
-          shutdown_timeout: @shutdown_timeout,
-          max_restarts: @max_restarts,
-          restart_window: @restart_window
-        )
-      end
-    end
-
-    # Tracks restart history for a child
-    class RestartHistory
-      property restarts : Array(Time)
-      property specification : Specification
-
-      def initialize(@specification : Specification)
-        @restarts = [] of Time
-      end
-
-      # Record a restart and check if we've exceeded the limit
-      def record_restart : Bool
-        now = Time.utc
-
-        # Remove old restarts outside the window
-        cutoff = now - @specification.restart_window
-        @restarts.reject! { |t| t < cutoff }
-
-        # Add new restart
-        @restarts << now
-
-        # Check if we've exceeded the limit
-        @restarts.size <= @specification.max_restarts
-      end
-
-      def restart_count : Int32
-        now = Time.utc
-        cutoff = now - @specification.restart_window
-        @restarts.count { |t| t >= cutoff }
-      end
-
-      def clear
-        @restarts.clear
-      end
-    end
-
     # Supervisor manages a set of child processes according to a restart strategy
     class Supervisor
       Log = ::Log.for(self)
+
+      # Supervision strategy determines how to handle child failures
+      enum RestartStrategy
+        OneForOne       # Only restart the failed child
+        OneForAll       # Restart all children when one fails
+        RestForOne      # Restart the failed child and all children started after it
+        SimpleOneForOne # Like one_for_one but for dynamic children with same spec
+      end
+
+      # Restart type for individual children
+      enum RestartType
+        Permanent # Always restart
+        Transient # Restart only on abnormal exit
+        Temporary # Never restart
+      end
+
+      # Shutdown behavior for children
+      enum ShutdownType
+        Brutal   # Kill immediately
+        Timeout  # Wait for graceful shutdown with timeout
+        Infinity # Wait forever for graceful shutdown
+      end
+
+      module Child
+        # Child specification for supervisor
+        class Specification
+          property id : String
+          property instructions : Array(Instruction)
+          property subroutines : Hash(String, Subroutine)
+          property globals : Hash(String, Value)
+          property restart : RestartType
+          property shutdown : ShutdownType
+          property shutdown_timeout : Time::Span
+          property max_restarts : Int32
+          property restart_window : Time::Span
+
+          def initialize(
+            @id : String,
+            @instructions : Array(Instruction),
+            @subroutines : Hash(String, Subroutine) = {} of String => Subroutine,
+            @globals : Hash(String, Value) = {} of String => Value,
+            @restart : RestartType = RestartType::Permanent,
+            @shutdown : ShutdownType = ShutdownType::Timeout,
+            @shutdown_timeout : Time::Span = 5.seconds,
+            @max_restarts : Int32 = 3,
+            @restart_window : Time::Span = 5.seconds,
+          )
+          end
+
+          def clone : Specification
+            Specification.new(
+              id: @id,
+              instructions: @instructions.map(&.clone),
+              subroutines: @subroutines.dup,
+              globals: @globals.transform_values(&.clone),
+              restart: @restart,
+              shutdown: @shutdown,
+              shutdown_timeout: @shutdown_timeout,
+              max_restarts: @max_restarts,
+              restart_window: @restart_window
+            )
+          end
+        end
+      end
+
+      # Tracks restart history for a child
+      class RestartHistory
+        property restarts : Array(Time)
+        property specification : Child::Specification
+
+        def initialize(@specification : Child::Specification)
+          @restarts = [] of Time
+        end
+
+        # Record a restart and check if we've exceeded the limit
+        def record_restart : Bool
+          now = Time.utc
+
+          # Remove old restarts outside the window
+          cutoff = now - @specification.restart_window
+          @restarts.reject! { |t| t < cutoff }
+
+          # Add new restart
+          @restarts << now
+
+          # Check if we've exceeded the limit
+          @restarts.size <= @specification.max_restarts
+        end
+
+        def restart_count : Int32
+          now = Time.utc
+          cutoff = now - @specification.restart_window
+          @restarts.count { |t| t >= cutoff }
+        end
+
+        def clear
+          @restarts.clear
+        end
+      end
 
       getter address : UInt64
       getter strategy : RestartStrategy
       getter max_restarts : Int32
       getter restart_window : Time::Span
-      getter children : Array(Tuple(Specification, UInt64?)) # (specification, current_pid)
+      getter children : Array(Tuple(Child::Specification, UInt64?)) # (specification, current_pid)
       getter restart_histories : Hash(String, RestartHistory)
 
       @engine : Engine
@@ -118,13 +120,13 @@ module Jelly
         @max_restarts : Int32 = 3,
         @restart_window : Time::Span = 5.seconds,
       )
-        @children = [] of Tuple(Specification, UInt64?)
+        @children = [] of Tuple(Child::Specification, UInt64?)
         @restart_histories = {} of String => RestartHistory
         @start_order = [] of String
       end
 
       # Add a child specification
-      def add_child(specification : Specification) : UInt64?
+      def add_child(specification : Child::Specification) : UInt64?
         @restart_histories[specification.id] = RestartHistory.new(specification)
 
         # Start the child
@@ -143,7 +145,7 @@ module Jelly
       end
 
       # Start a child process from its specification
-      private def start_child(specification : Specification) : UInt64?
+      private def start_child(specification : Child::Specification) : UInt64?
         begin
           process = @engine.process_manager.create_process(
             instructions: specification.instructions.map(&.clone)
@@ -167,7 +169,7 @@ module Jelly
       end
 
       # Handle a child exit
-      def handle_child_exit(pid : UInt64, reason : ExitReason) : Bool
+      def handle_child_exit(pid : UInt64, reason : Process::ExitReason) : Bool
         # Find the child
         child_index = @children.index { |(specification, current_pid)| current_pid == pid }
         return false unless child_index
@@ -274,14 +276,14 @@ module Jelly
       end
 
       # Terminate a child process
-      private def terminate_child(pid : UInt64, specification : Specification)
+      private def terminate_child(pid : UInt64, specification : Child::Specification)
         process = @engine.processes.find { |p| p.address == pid }
         return unless process
 
         case specification.shutdown
         when .brutal?
           process.state = Process::State::DEAD
-          process.exit_reason = ExitReason.kill
+          process.exit_reason = Process::ExitReason.kill
         when .timeout?
           # Send shutdown signal and wait
           signal_shutdown(process)
@@ -320,7 +322,7 @@ module Jelly
         # Force kill if still alive
         if process.state != Process::State::DEAD
           process.state = Process::State::DEAD
-          process.exit_reason = ExitReason.kill
+          process.exit_reason = Process::ExitReason.kill
         end
       end
 

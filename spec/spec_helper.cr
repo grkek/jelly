@@ -16,7 +16,7 @@ alias ProcessRegistryWrapper = Jelly::VirtualMachine::ProcessRegistry
 alias EmulationExceptionWrapper = Jelly::VirtualMachine::EmulationException
 alias TypeMismatchExceptionWrapper = Jelly::VirtualMachine::TypeMismatchException
 alias InvalidAddressExceptionWrapper = Jelly::VirtualMachine::InvalidAddressException
-alias ExitReasonWrapper = Jelly::VirtualMachine::ExitReason
+alias ExitReasonWrapper = Jelly::VirtualMachine::Process::ExitReason
 
 module TestHelpers
   # Create a test engine with default configuration

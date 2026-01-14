@@ -67,17 +67,17 @@ worker_instructions = [
 
 # Create supervisor
 supervisor = engine.create_supervisor(
-  strategy: VirtualMachine::RestartStrategy::OneForOne,
+  strategy: VirtualMachine::Supervisor::RestartStrategy::OneForOne,
   max_restarts: 3,
   restart_window: 5.seconds
 )
 
 Log.info { "Supervisor created with address <#{supervisor.address}>" }
 
-worker = VirtualMachine::Specification.new(
+worker = VirtualMachine::Supervisor::Child::Specification.new(
   id: "worker",
   instructions: worker_instructions,
-  restart: VirtualMachine::RestartType::Transient,
+  restart: VirtualMachine::Supervisor::RestartType::Transient,
   max_restarts: 3,
   restart_window: 5.seconds
 )
@@ -87,6 +87,14 @@ supervisor.add_child(worker)
 Log.info { "Starting VM with properly supervised worker..." }
 
 Log.setup(:debug)
+
+engine.add_breakpoint do |process|
+  process.counter == 10  # Break when counter reaches 10
+
+  pp process
+
+  true
+end
 
 engine.run
 

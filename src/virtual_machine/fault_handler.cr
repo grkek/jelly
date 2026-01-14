@@ -5,11 +5,11 @@ module Jelly
       Log = ::Log.for(self)
 
       @engine : Engine
-      @pending_signals : Channel(Tuple(UInt64, ExitSignal))
+      @pending_signals : Channel(Tuple(UInt64, Process::ExitSignal))
       @running : Bool
 
       def initialize(@engine : Engine)
-        @pending_signals = Channel(Tuple(UInt64, ExitSignal)).new(1000)
+        @pending_signals = Channel(Tuple(UInt64, Process::ExitSignal)).new(1000)
         @running = false
       end
 
@@ -44,7 +44,7 @@ module Jelly
       end
 
       # Handle a process exit - propagate signals to linked/monitoring processes
-      def handle_exit(process : Process, reason : ExitReason)
+      def handle_exit(process : Process, reason : Process::ExitReason)
         Log.info { "FaultHandler: Process <#{process.address}> exited: #{reason.type}" }
 
         # Store exit reason on process
@@ -55,13 +55,13 @@ module Jelly
 
         # Send exit signals to linked processes
         linked.each do |linked_pid|
-          signal = ExitSignal.new(process.address, reason, ExitSignal::LinkType::Link)
+          signal = Process::ExitSignal.new(process.address, reason, Process::ExitSignal::LinkType::Link)
           queue_signal(linked_pid, signal)
         end
 
         # Send DOWN messages to monitoring processes
         monitors.each do |ref|
-          down = DownMessage.new(ref, process.address, reason)
+          down = Process::DownMessage.new(ref, process.address, reason)
           deliver_down_message(ref.watcher, down)
         end
 
@@ -75,7 +75,7 @@ module Jelly
       end
 
       # Queue a signal for delivery
-      private def queue_signal(target_pid : UInt64, signal : ExitSignal)
+      private def queue_signal(target_pid : UInt64, signal : Process::ExitSignal)
         begin
           @pending_signals.send({target_pid, signal})
         rescue Channel::ClosedError
@@ -84,7 +84,7 @@ module Jelly
       end
 
       # Deliver a signal to a process
-      private def deliver_signal(target_pid : UInt64, signal : ExitSignal)
+      private def deliver_signal(target_pid : UInt64, signal : Process::ExitSignal)
         process = @engine.processes.find { |p| p.address == target_pid }
         return unless process
         return if process.state == Process::State::DEAD
@@ -116,7 +116,7 @@ module Jelly
       end
 
       # Deliver a DOWN message to a monitoring process
-      private def deliver_down_message(target_pid : UInt64, down : DownMessage)
+      private def deliver_down_message(target_pid : UInt64, down : Process::DownMessage)
         process = @engine.processes.find { |p| p.address == target_pid }
         return unless process
         return if process.state == Process::State::DEAD
@@ -133,14 +133,14 @@ module Jelly
       end
 
       # Notify supervisor of child exit
-      private def notify_supervisor(pid : UInt64, reason : ExitReason)
+      private def notify_supervisor(pid : UInt64, reason : Process::ExitReason)
         if supervisor = @engine.supervisor_registry.find_supervisor_of(pid)
           supervisor.handle_child_exit(pid, reason)
         end
       end
 
       # Kill a process with a specific reason
-      def kill_process(pid : UInt64, reason : ExitReason)
+      def kill_process(pid : UInt64, reason : Process::ExitReason)
         process = @engine.processes.find { |p| p.address == pid }
         return unless process
         return if process.state == Process::State::DEAD
@@ -150,8 +150,8 @@ module Jelly
       end
 
       # Send an exit signal to a process (like Erlang's exit/2)
-      def exit_process(from : UInt64, to : UInt64, reason : ExitReason)
-        signal = ExitSignal.new(from, reason, ExitSignal::LinkType::Link)
+      def exit_process(from : UInt64, to : UInt64, reason : Process::ExitReason)
+        signal = Process::ExitSignal.new(from, reason, Process::ExitSignal::LinkType::Link)
         queue_signal(to, signal)
       end
     end
@@ -190,7 +190,7 @@ module Jelly
       end
 
       # Create a crash dump for debugging
-      def self.create_crash_dump(process : Process, reason : ExitReason) : CrashDump
+      def self.create_crash_dump(process : Process, reason : Process::ExitReason) : CrashDump
         CrashDump.new(process, reason)
       end
     end
@@ -199,7 +199,7 @@ module Jelly
     class CrashDump
       getter process_address : UInt64
       getter registered_name : String?
-      getter exit_reason : ExitReason
+      getter exit_reason : Process::ExitReason
       getter stack_trace : Array(Value)
       getter call_stack : Array(UInt64)
       getter counter : UInt64
@@ -207,7 +207,7 @@ module Jelly
       getter mailbox_size : Int32
       getter timestamp : Time
 
-      def initialize(process : Process, @exit_reason : ExitReason)
+      def initialize(process : Process, @exit_reason : Process::ExitReason)
         @process_address = process.address
         @registered_name = process.registered_name
         @stack_trace = process.stack.map(&.clone)
