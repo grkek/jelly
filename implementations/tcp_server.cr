@@ -81,14 +81,14 @@ debugger = engine.attach_debugger do |process, instruction|
   puts "═" * 50
 
   print "debug(s/n/c/q)> "
-  input = gets.try(&.chomp) || "s"
+  input = gets.try(&.chomp)
 
   case input
   when "s", "step"     then VM::Engine::Debugger::Action::Step
   when "n", "next"     then VM::Engine::Debugger::Action::StepOver
   when "c", "continue" then VM::Engine::Debugger::Action::Continue
   when "q", "quit"     then VM::Engine::Debugger::Action::Abort
-  else                      VM::Engine::Debugger::Action::Continue
+  else                      VM::Engine::Debugger::Action::Step
   end
 end
 
