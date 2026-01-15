@@ -340,17 +340,13 @@ VM::Instruction.new(VM::Code::TRAP_EXIT)
 
 ### Networking
 
-**TCP Client:**
+**TCP:**
 | Instruction | Description |
 |-------------|-------------|
 | `TCP_CONNECT` | Connect to host:port |
 | `TCP_SEND` | Send data |
 | `TCP_RECEIVE` | Receive data |
 | `TCP_CLOSE` | Close connection |
-
-**TCP Server:**
-| Instruction | Description |
-|-------------|-------------|
 | `TCP_LISTEN` | Create server socket bound to host:port |
 | `TCP_ACCEPT` | Accept incoming connection |
 

@@ -71,6 +71,22 @@ server_instructions = [
   VM::Instruction.new(VM::Code::EXIT_SELF),
 ]
 
+# Attach debugger
+debugger = engine.attach_debugger do |process, instruction|
+  puts "Break: Process <#{process.address}> at #{process.counter}"
+  puts "Stack: #{process.stack.map(&.to_s)}"
+
+  print "debug (c/s/q)> "
+  case gets.try(&.chomp)
+  when "s" then VM::Engine::Debugger::Action::Step
+  when "q" then VM::Engine::Debugger::Action::Abort
+  else          VM::Engine::Debugger::Action::Continue
+  end
+end
+
+# Break at instruction 0
+debugger.add_breakpoint_at(24_u64)
+
 process = engine.process_manager.create_process(instructions: server_instructions)
 engine.processes.push(process)
 engine.run

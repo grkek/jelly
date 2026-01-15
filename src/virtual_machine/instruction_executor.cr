@@ -1237,7 +1237,7 @@ module Jelly
 
       # Unconditional jump to a specified address
       private def execute_jump(process : Process, instruction : Instruction) : Value
-        process.counter += 1 # ADD THIS LINE
+        process.counter += 1
 
         unless instruction.value.is_integer?
           raise TypeMismatchException.new("JUMP requires an integer offset")
@@ -1317,20 +1317,20 @@ module Jelly
       private def execute_tcp_send(process : Process) : Value
         process.counter += 1
 
-        data_val = process.stack.pop
-        socket_id_val = process.stack.pop
+        data_value = process.stack.pop
+        socket_id_value = process.stack.pop
 
-        unless socket_id_val.is_integer?
+        unless socket_id_value.is_integer?
           raise TypeMismatchException.new("TCP_SEND requires socket_id (integer)")
         end
 
-        socket_id = socket_id_val.to_i64.to_u64
+        socket_id = socket_id_value.to_i64.to_u64
 
         # Accept either String or Slice(UInt8)
-        slice : Slice(UInt8) = if data_val.is_string?
-          data_val.to_s.to_slice
-        elsif data_val.is_binary?
-          data_val.to_binary
+        slice : Slice(UInt8) = if data_value.is_string?
+          data_value.to_s.to_slice
+        elsif data_value.is_binary?
+          data_value.to_binary
         else
           raise TypeMismatchException.new("TCP_SEND data must be String or binary")
         end
@@ -1361,16 +1361,16 @@ module Jelly
         socket_id_value = process.stack.pop
 
         unless socket_id_value.is_integer? && max_bytes_value.is_integer?
-          raise TypeMismatchException.new("TCP_RECEIVE requires socket_id (int) and max_bytes (int)")
+          raise TypeMismatchException.new("TCP_RECEIVE requires socket_id (int) and maximum_bytes (int)")
         end
 
         socket_id = socket_id_value.to_i64.to_u64
-        max_bytes = max_bytes_value.to_i64.to_i32
+        maximum_bytes = max_bytes_value.to_i64.to_i32
 
-        raise EmulationException.new("TCP_RECEIVE max_bytes must be > 0") if max_bytes <= 0
+        raise EmulationException.new("TCP_RECEIVE maximum_bytes must be > 0") if maximum_bytes <= 0
 
         received_data = @socket_registry.with_socket!(socket_id) do |socket|
-          buffer = Slice(UInt8).new(max_bytes)
+          buffer = Slice(UInt8).new(maximum_bytes)
           bytes_read = socket.read(buffer)
           buffer[0, bytes_read]
         end
@@ -1531,19 +1531,19 @@ module Jelly
       private def execute_udp_send(process : Process) : Value
         process.counter += 1
 
-        data_val = process.stack.pop
-        socket_id_val = process.stack.pop
+        data_value = process.stack.pop
+        socket_id_value = process.stack.pop
 
-        unless socket_id_val.is_integer?
+        unless socket_id_value.is_integer?
           raise TypeMismatchException.new("UDP_SEND requires socket_id (integer)")
         end
 
-        socket_id = socket_id_val.to_i64.to_u64
+        socket_id = socket_id_value.to_i64.to_u64
 
-        slice : Slice(UInt8) = if data_val.is_string?
-          data_val.to_s.to_slice
-        elsif data_val.is_binary?
-          data_val.to_binary
+        slice : Slice(UInt8) = if data_value.is_string?
+          data_value.to_s.to_slice
+        elsif data_value.is_binary?
+          data_value.to_binary
         else
           raise TypeMismatchException.new("UDP_SEND data must be String or binary")
         end
@@ -1568,23 +1568,23 @@ module Jelly
       private def execute_udp_send_to(process : Process) : Value
         process.counter += 1
 
-        port_val = process.stack.pop
-        host_val = process.stack.pop
-        data_val = process.stack.pop
-        socket_id_val = process.stack.pop
+        port_value = process.stack.pop
+        host_value = process.stack.pop
+        data_value = process.stack.pop
+        socket_id_value = process.stack.pop
 
-        unless socket_id_val.is_integer? && host_val.is_string? && port_val.is_integer?
+        unless socket_id_value.is_integer? && host_value.is_string? && port_value.is_integer?
           raise TypeMismatchException.new("UDP_SEND_TO requires socket_id (int), data, host (string), port (int)")
         end
 
-        socket_id = socket_id_val.to_i64.to_u64
-        host = host_val.to_s
-        port = port_val.to_i64.to_i32
+        socket_id = socket_id_value.to_i64.to_u64
+        host = host_value.to_s
+        port = port_value.to_i64.to_i32
 
-        slice : Slice(UInt8) = if data_val.is_string?
-          data_val.to_s.to_slice
-        elsif data_val.is_binary?
-          data_val.to_binary
+        slice : Slice(UInt8) = if data_value.is_string?
+          data_value.to_s.to_slice
+        elsif data_value.is_binary?
+          data_value.to_binary
         else
           raise TypeMismatchException.new("UDP_SEND_TO data must be String or binary")
         end
@@ -1614,25 +1614,25 @@ module Jelly
         socket_id_value = process.stack.pop
 
         unless socket_id_value.is_integer? && max_bytes_value.is_integer?
-          raise TypeMismatchException.new("UDP_RECEIVE requires socket_id (int) and max_bytes (int)")
+          raise TypeMismatchException.new("UDP_RECEIVE requires socket_id (int) and maximum_bytes (int)")
         end
 
         socket_id = socket_id_value.to_i64.to_u64
-        max_bytes = max_bytes_value.to_i64.to_i32
+        maximum_bytes = max_bytes_value.to_i64.to_i32
 
-        raise EmulationException.new("UDP_RECEIVE max_bytes must be > 0") if max_bytes <= 0
+        raise EmulationException.new("UDP_RECEIVE maximum_bytes must be > 0") if maximum_bytes <= 0
 
         @socket_registry.with_udp_socket!(socket_id) do |socket|
-          buffer = Bytes.new(max_bytes)
+          buffer = Bytes.new(maximum_bytes)
           bytes_read, addr = socket.receive(buffer)
 
           # Push address info
           check_stack_capacity(process)
-          addr_info = Value.new({
+          address_info = Value.new({
             "host" => Value.new(addr.address),
             "port" => Value.new(addr.port.to_i64),
           })
-          process.stack.push(addr_info)
+          process.stack.push(address_info)
 
           # Push received data (slice of actual bytes read)
           check_stack_capacity(process)
@@ -1752,19 +1752,19 @@ module Jelly
       private def execute_unix_send(process : Process) : Value
         process.counter += 1
 
-        data_val = process.stack.pop
-        socket_id_val = process.stack.pop
+        data_value = process.stack.pop
+        socket_id_value = process.stack.pop
 
-        unless socket_id_val.is_integer?
+        unless socket_id_value.is_integer?
           raise TypeMismatchException.new("UNIX_SEND requires socket_id (integer)")
         end
 
-        socket_id = socket_id_val.to_i64.to_u64
+        socket_id = socket_id_value.to_i64.to_u64
 
-        slice : Slice(UInt8) = if data_val.is_string?
-          data_val.to_s.to_slice
-        elsif data_val.is_binary?
-          data_val.to_binary
+        slice : Slice(UInt8) = if data_value.is_string?
+          data_value.to_s.to_slice
+        elsif data_value.is_binary?
+          data_value.to_binary
         else
           raise TypeMismatchException.new("UNIX_SEND data must be String or binary")
         end
@@ -1793,16 +1793,16 @@ module Jelly
         socket_id_value = process.stack.pop
 
         unless socket_id_value.is_integer? && max_bytes_value.is_integer?
-          raise TypeMismatchException.new("UNIX_RECEIVE requires socket_id (int) and max_bytes (int)")
+          raise TypeMismatchException.new("UNIX_RECEIVE requires socket_id (int) and maximum_bytes (int)")
         end
 
         socket_id = socket_id_value.to_i64.to_u64
-        max_bytes = max_bytes_value.to_i64.to_i32
+        maximum_bytes = max_bytes_value.to_i64.to_i32
 
-        raise EmulationException.new("UNIX_RECEIVE max_bytes must be > 0") if max_bytes <= 0
+        raise EmulationException.new("UNIX_RECEIVE maximum_bytes must be > 0") if maximum_bytes <= 0
 
         received_data = @socket_registry.with_unix_socket!(socket_id) do |socket|
-          buffer = Slice(UInt8).new(max_bytes)
+          buffer = Slice(UInt8).new(maximum_bytes)
           bytes_read = socket.read(buffer)
           buffer[0, bytes_read]
         end
