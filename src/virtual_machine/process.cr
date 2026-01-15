@@ -18,7 +18,6 @@ module Jelly
       end
 
       # Represents the reason a process exited
-      # Similar to Erlang's exit reasons
       class ExitReason
         enum Type
           Normal         # Clean shutdown
@@ -98,22 +97,14 @@ module Jelly
 
         def to_s : String
           case @type
-          when .normal?
-            "normal"
-          when .kill?
-            "killed"
-          when .shutdown?
-            "shutdown: #{@message}"
-          when .exception?
-            "exception: #{@message}"
-          when .timeout?
-            "timeout"
-          when .invalid_process?
-            "invalid_process"
-          when .custom?
-            @message
-          else
-            "unknown"
+          when .normal?         then "normal"
+          when .kill?           then "killed"
+          when .shutdown?       then "shutdown: #{@message}"
+          when .exception?      then "exception: #{@message}"
+          when .timeout?        then "timeout"
+          when .invalid_process? then "invalid_process"
+          when .custom?         then @message
+          else                       "unknown"
           end
         end
 
@@ -223,8 +214,6 @@ module Jelly
       property instructions : Array(Instruction)
       property subroutines : Hash(String, Subroutine) = {} of String => Subroutine
       property globals : Hash(String, Value) = {} of String => Value
-
-      # === NEW: Fault tolerance properties ===
 
       # Exit reason when process terminates
       property exit_reason : ExitReason?

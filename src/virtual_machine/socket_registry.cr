@@ -62,7 +62,20 @@ module Jelly
         @mutex.synchronize { @sockets[id]?.try(&.type) }
       end
 
-      # Execute a block with any socket
+      # Non-blocking accept for TCP server (accept? returns nil if no connection pending)
+      def try_accept_tcp(id : UInt64) : TCPSocket?
+        with_tcp_server(id) do |server|
+          server.accept?.as?(TCPSocket)
+        end
+      end
+
+      # Non-blocking accept for UNIX server
+      def try_accept_unix(id : UInt64) : UNIXSocket?
+        with_unix_server(id) do |server|
+          server.accept?.as?(UNIXSocket)
+        end
+      end
+
       def with_socket(id : UInt64, & : Socket -> T) : T? forall T
         entry = @mutex.synchronize { @sockets[id]? }
         return nil unless entry
@@ -219,6 +232,10 @@ module Jelly
         @mutex.synchronize do
           @sockets.select { |_, entry| entry.type == type }.keys
         end
+      end
+
+      def all_ids : Array(UInt64)
+        @mutex.synchronize { @sockets.keys }
       end
     end
   end
