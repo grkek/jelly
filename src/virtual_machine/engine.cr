@@ -92,7 +92,8 @@ module Jelly
         end
 
         def remove_breakpoint(id : UInt64) : Bool
-          @breakpoints.reject! { |breakpoint| breakpoint.id == id }
+          breakpoints.reject! { |breakpoint| breakpoint.id == id }
+          breakpoints.any? { |breakpoint| breakpoint.id == id }
         end
 
         def clear_breakpoints
