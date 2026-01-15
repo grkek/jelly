@@ -144,6 +144,11 @@ module Jelly
         def stepping? : Bool
           @step_mode || @step_over_depth != nil
         end
+
+        def reset
+          @step_mode = false
+          @step_over_depth = nil
+        end
       end
 
       property processes : Array(Process) = [] of Process
