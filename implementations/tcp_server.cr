@@ -92,7 +92,7 @@ debugger = engine.attach_debugger do |process, instruction|
   end
 end
 
-debugger.add_breakpoint_at(0_u64)
+breakpoint = debugger.add_breakpoint { |p| p.counter == 24 }
 
 process = engine.process_manager.create_process(instructions: instructions)
 engine.processes.push(process)
@@ -100,3 +100,7 @@ engine.processes.push(process)
 engine.configuration.iteration_limit = 1000000
 
 engine.run
+
+# Check breakpoint stats
+Log.info { "Breakpoint #{breakpoint.id} hit #{breakpoint.hit_count} times" }
+Log.info { "Final fault tolerance stats: #{engine.fault_tolerance_statistics}" }

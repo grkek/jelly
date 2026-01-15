@@ -8,7 +8,7 @@ An abstract virtual machine for building concurrent, fault-tolerant applications
 - **Actor Model Concurrency** - Lightweight processes with message passing
 - **Fault Tolerance** - Process linking, monitoring, and supervision trees
 - **First-class Data Structures** - Maps, arrays, and strings with built-in operations
-- **TCP Networking** - Socket operations for building networked applications
+- **Networking** - Socket operations for building networked applications
 - **Exception Handling** - Try-catch blocks with rethrow support
 
 ## Quick Start
