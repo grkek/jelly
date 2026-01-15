@@ -71,22 +71,32 @@ server_instructions = [
   VM::Instruction.new(VM::Code::EXIT_SELF),
 ]
 
-# Attach debugger
+# Attach debugger with interactive handler
 debugger = engine.attach_debugger do |process, instruction|
-  puts "Break: Process <#{process.address}> at #{process.counter}"
+  puts "═" * 50
+  puts "Break at Process <#{process.address}>, counter: #{process.counter}"
+  puts "Instruction: #{instruction.try(&.code) || "none"}"
   puts "Stack: #{process.stack.map(&.to_s)}"
+  puts "Locals: #{process.locals.map(&.to_s)}"
+  puts "═" * 50
 
-  print "debug (c/s/q)> "
-  case gets.try(&.chomp)
-  when "s" then VM::Engine::Debugger::Action::Step
-  when "q" then VM::Engine::Debugger::Action::Abort
-  else          VM::Engine::Debugger::Action::Continue
+  print "debug(s/n/c/q)> "
+  input = gets.try(&.chomp) || "s"
+
+  case input
+  when "s", "step"     then VM::Engine::Debugger::Action::Step
+  when "n", "next"     then VM::Engine::Debugger::Action::StepOver
+  when "c", "continue" then VM::Engine::Debugger::Action::Continue
+  when "q", "quit"     then VM::Engine::Debugger::Action::Abort
+  else                      VM::Engine::Debugger::Action::Continue
   end
 end
 
-# Break at instruction 0
-debugger.add_breakpoint_at(24_u64)
+debugger.add_breakpoint_at(0_u64)
 
 process = engine.process_manager.create_process(instructions: server_instructions)
 engine.processes.push(process)
+
+engine.configuration.iteration_limit = 1000000
+
 engine.run

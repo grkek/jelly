@@ -628,12 +628,12 @@ The engine can be configured via the `Configuration` object:
 ```crystal
 engine = VM::Engine.new
 
-engine.configuration.max_stack_size = 1000        # Maximum stack depth
-engine.configuration.max_mailbox_size = 10000     # Maximum mailbox messages
-engine.configuration.iteration_limit = 1000000    # Max execution iterations
-engine.configuration.execution_delay = 0.001      # Delay between iterations
-engine.configuration.deadlock_detection = true    # Enable deadlock detection
-engine.configuration.enable_message_acks = false  # Message acknowledgments
+engine.configuration.max_stack_size = 1000                   # Maximum stack depth
+engine.configuration.max_mailbox_size = 10000                # Maximum mailbox messages
+engine.configuration.iteration_limit = 1000000               # Max execution iterations
+engine.configuration.execution_delay = 0.001                 # Delay between iterations
+engine.configuration.deadlock_detection = true               # Enable deadlock detection
+engine.configuration.enable_message_acknowledgments = false  # Message acknowledgments
 engine.configuration.auto_reactivate_processes = true
 ```
 

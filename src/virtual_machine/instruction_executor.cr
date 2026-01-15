@@ -2051,7 +2051,7 @@ module Jelly
           raise InvalidAddressException.new("SEND to invalid address #{address}")
         end
 
-        needs_ack = @engine.configuration.enable_message_acks
+        needs_ack = @engine.configuration.enable_message_acknowledgments
         ttl = @engine.configuration.default_message_ttl
         message = Message.new(process.address, value, needs_ack, ttl)
         process.add_dependency(target.address)
@@ -2119,7 +2119,7 @@ module Jelly
 
           process.stack.push(message.value)
 
-          if message.needs_ack && @engine.configuration.enable_message_acks
+          if message.needs_ack && @engine.configuration.enable_message_acknowledgments
             ack = MessageAcknowledgment.new(message.id, process.address, :processed)
             target = @engine.processes.find { |p| p.address == message.sender }
 
@@ -2157,7 +2157,7 @@ module Jelly
           check_stack_capacity(process)
           process.stack.push(message.value)
 
-          if message.needs_ack && @engine.configuration.enable_message_acks
+          if message.needs_ack && @engine.configuration.enable_message_acknowledgments
             ack = MessageAcknowledgment.new(message.id, process.address, :processed)
             target = @engine.processes.find { |p| p.address == message.sender }
             target.mailbox.add_ack(ack) if target
@@ -2197,7 +2197,7 @@ module Jelly
 
           process.stack.push(message.value)
 
-          if message.needs_ack && @engine.configuration.enable_message_acks
+          if message.needs_ack && @engine.configuration.enable_message_acknowledgments
             ack = MessageAcknowledgment.new(message.id, process.address, :processed)
             target = @engine.processes.find { |p| p.address == message.sender }
             target.mailbox.add_ack(ack) if target

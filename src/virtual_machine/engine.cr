@@ -285,7 +285,7 @@ module Jelly
           target = processes.find { |p| p.address == recipient && p.state != Process::State::DEAD }
           next unless target
 
-          message = Message.new(sender, value, @configuration.enable_message_acks)
+          message = Message.new(sender, value, @configuration.enable_message_acknowledgments)
 
           if target.mailbox.size < @configuration.max_mailbox_size && target.mailbox.push(message)
             Log.debug { "Delivered delayed message from <0.#{sender}> to <0.#{recipient}>" }
