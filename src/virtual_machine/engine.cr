@@ -23,9 +23,57 @@ module Jelly
           Abort    # Stop the process
         end
 
+        class Breakpoint
+          getter id : UInt64
+          getter? enabled : Bool = true
+          getter hit_count : Int32 = 0
+          property ignore_count : Int32 = 0
+
+          @@next_id : UInt64 = 0_u64
+
+          @condition : Process -> Bool
+
+          def initialize(&@condition : Process -> Bool)
+            @id = @@next_id
+            @@next_id += 1
+          end
+
+          def check(process : Process) : Bool
+            return false unless @enabled
+
+            if @condition.call(process)
+              @hit_count += 1
+
+              # Skip if we haven't hit ignore_count yet
+              if @hit_count <= @ignore_count
+                return false
+              end
+
+              true
+            else
+              false
+            end
+          end
+
+          def enable : self
+            @enabled = true
+            self
+          end
+
+          def disable : self
+            @enabled = false
+            self
+          end
+
+          def reset_hit_count : self
+            @hit_count = 0
+            self
+          end
+        end
+
         Log = ::Log.for(self)
 
-        @breakpoints : Array(Breakpoint) = [] of Breakpoint
+        @breakpoints : Array(Debugger::Breakpoint) = [] of Debugger::Breakpoint
         @step_mode : Bool = false
         @step_over_depth : Int32? = nil
         @handler : (Process, Instruction?) -> Action
@@ -33,17 +81,17 @@ module Jelly
         def initialize(&@handler : (Process, Instruction?) -> Action)
         end
 
-        def add_breakpoint(&condition : Process -> Bool) : Breakpoint
-          bp = Breakpoint.new(&condition)
+        def add_breakpoint(&condition : Process -> Bool) : Debugger::Breakpoint
+          bp = Debugger::Breakpoint.new(&condition)
           @breakpoints << bp
           bp
         end
 
-        def add_breakpoint_at(address : UInt64) : Breakpoint
+        def add_breakpoint_at(address : UInt64) : Debugger::Breakpoint
           add_breakpoint { |p| p.counter == address }
         end
 
-        def remove_breakpoint(breakpoint : Breakpoint) : Bool
+        def remove_breakpoint(breakpoint : Debugger::Breakpoint) : Bool
           @breakpoints.delete(breakpoint) != nil
         end
 
@@ -51,7 +99,7 @@ module Jelly
           @breakpoints.clear
         end
 
-        def breakpoints : Array(Breakpoint)
+        def breakpoints : Array(Debugger::Breakpoint)
           @breakpoints
         end
 
@@ -94,54 +142,6 @@ module Jelly
 
         def stepping? : Bool
           @step_mode || @step_over_depth != nil
-        end
-      end
-
-      class Breakpoint
-        getter id : UInt64
-        getter? enabled : Bool = true
-        getter hit_count : Int32 = 0
-        property ignore_count : Int32 = 0
-
-        @@next_id : UInt64 = 0_u64
-
-        @condition : Process -> Bool
-
-        def initialize(&@condition : Process -> Bool)
-          @id = @@next_id
-          @@next_id += 1
-        end
-
-        def check(process : Process) : Bool
-          return false unless @enabled
-
-          if @condition.call(process)
-            @hit_count += 1
-
-            # Skip if we haven't hit ignore_count yet
-            if @hit_count <= @ignore_count
-              return false
-            end
-
-            true
-          else
-            false
-          end
-        end
-
-        def enable : self
-          @enabled = true
-          self
-        end
-
-        def disable : self
-          @enabled = false
-          self
-        end
-
-        def reset_hit_count : self
-          @hit_count = 0
-          self
         end
       end
 
