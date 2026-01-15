@@ -112,12 +112,28 @@ module Jelly
           when Code::ARRAY_POP    then execute_array_pop(process)
           when Code::ARRAY_LENGTH then execute_array_length(process)
             # I/O
-          when Code::PRINT_LINE  then execute_print_line(process)
-          when Code::READ_LINE   then execute_read_line(process)
-          when Code::TCP_CONNECT then execute_tcp_connect(process)
-          when Code::TCP_SEND    then execute_tcp_send(process)
-          when Code::TCP_RECEIVE then execute_tcp_receive(process)
-          when Code::TCP_CLOSE   then execute_tcp_close(process)
+          when Code::PRINT_LINE   then execute_print_line(process)
+          when Code::READ_LINE    then execute_read_line(process)
+          when Code::TCP_CONNECT  then execute_tcp_connect(process)
+          when Code::TCP_SEND     then execute_tcp_send(process)
+          when Code::TCP_RECEIVE  then execute_tcp_receive(process)
+          when Code::TCP_CLOSE    then execute_tcp_close(process)
+          when Code::TCP_LISTEN   then execute_tcp_listen(process)
+          when Code::TCP_ACCEPT   then execute_tcp_accept(process)
+          when Code::UDP_BIND     then execute_udp_bind(process)
+          when Code::UDP_CONNECT  then execute_udp_connect(process)
+          when Code::UDP_SEND     then execute_udp_send(process)
+          when Code::UDP_SEND_TO  then execute_udp_send_to(process)
+          when Code::UDP_RECEIVE  then execute_udp_receive(process)
+          when Code::UDP_CLOSE    then execute_udp_close(process)
+          when Code::UNIX_CONNECT then execute_unix_connect(process)
+          when Code::UNIX_LISTEN  then execute_unix_listen(process)
+          when Code::UNIX_ACCEPT  then execute_unix_accept(process)
+          when Code::UNIX_SEND    then execute_unix_send(process)
+          when Code::UNIX_RECEIVE then execute_unix_receive(process)
+          when Code::UNIX_CLOSE   then execute_unix_close(process)
+          when Code::SOCKET_INFO  then execute_socket_info(process)
+          when Code::SOCKET_CLOSE then execute_socket_close(process)
             # Error handling
           when Code::THROW then execute_throw(process)
             # Fault tolerance
@@ -1375,6 +1391,483 @@ module Jelly
 
         unless socket_id_value.is_integer?
           raise TypeMismatchException.new("TCP_CLOSE requires socket_id (integer)")
+        end
+
+        socket_id = socket_id_value.to_i64.to_u64
+        closed = @socket_registry.close(socket_id)
+
+        Log.debug { "Process <#{process.address}> closed socket #{socket_id}: #{closed}" }
+
+        result = Value.new(closed)
+        check_stack_capacity(process)
+        process.stack.push(result)
+        result
+      end
+
+      # Create and bind a TCP server
+      private def execute_tcp_listen(process : Process) : Value
+        process.counter += 1
+
+        port_value = process.stack.pop
+        host_value = process.stack.pop
+
+        unless host_value.is_string? && port_value.is_integer?
+          raise TypeMismatchException.new("TCP_LISTEN requires host (string) and port (integer)")
+        end
+
+        host = host_value.to_s
+        port = port_value.to_i64.to_i32
+
+        begin
+          server = TCPServer.new(host, port)
+          socket_id = @socket_registry.register(server)
+
+          result = Value.new(socket_id.to_i64)
+          check_stack_capacity(process)
+          process.stack.push(result)
+          result
+        rescue ex
+          Log.warn { "TCP_LISTEN failed: #{ex.message}" }
+          result = Value.new
+          check_stack_capacity(process)
+          process.stack.push(result)
+          result
+        end
+      end
+
+      # Accept a connection on TCP server
+      private def execute_tcp_accept(process : Process) : Value
+        process.counter += 1
+
+        socket_id_value = process.stack.pop
+
+        unless socket_id_value.is_integer?
+          raise TypeMismatchException.new("TCP_ACCEPT requires socket_id (integer)")
+        end
+
+        socket_id = socket_id_value.to_i64.to_u64
+
+        client_id = @socket_registry.with_tcp_server!(socket_id) do |server|
+          begin
+            client = server.accept
+            @socket_registry.register(client)
+          rescue ex
+            Log.warn { "Process <#{process.address}> TCP accept failed: #{ex.message}" }
+            nil
+          end
+        end
+
+        result = client_id ? Value.new(client_id.to_i64) : Value.new
+        check_stack_capacity(process)
+        process.stack.push(result)
+        result
+      end
+
+      # Create and bind a UDP socket
+      private def execute_udp_bind(process : Process) : Value
+        process.counter += 1
+
+        port_value = process.stack.pop
+        host_value = process.stack.pop
+
+        unless host_value.is_string? && port_value.is_integer?
+          raise TypeMismatchException.new("UDP_BIND requires host (string) and port (integer)")
+        end
+
+        host = host_value.to_s
+        port = port_value.to_i64.to_i32
+
+        begin
+          socket = UDPSocket.new
+          socket.bind(host, port)
+          socket_id = @socket_registry.register(socket)
+
+          result = Value.new(socket_id.to_i64)
+          check_stack_capacity(process)
+          process.stack.push(result)
+          result
+        rescue ex
+          Log.warn { "UDP_BIND failed: #{ex.message}" }
+          result = Value.new
+          check_stack_capacity(process)
+          process.stack.push(result)
+          result
+        end
+      end
+
+      # Connect UDP socket to remote address (for send/receive without specifying address)
+      private def execute_udp_connect(process : Process) : Value
+        process.counter += 1
+
+        port_value = process.stack.pop
+        host_value = process.stack.pop
+
+        unless host_value.is_string? && port_value.is_integer?
+          raise TypeMismatchException.new("UDP_CONNECT requires host (string) and port (integer)")
+        end
+
+        host = host_value.to_s
+        port = port_value.to_i64.to_i32
+
+        begin
+          socket = UDPSocket.new
+          socket.connect(host, port)
+          socket_id = @socket_registry.register(socket)
+
+          result = Value.new(socket_id.to_i64)
+          check_stack_capacity(process)
+          process.stack.push(result)
+          result
+        rescue ex
+          Log.warn { "UDP_CONNECT failed: #{ex.message}" }
+          result = Value.new
+          check_stack_capacity(process)
+          process.stack.push(result)
+          result
+        end
+      end
+
+      # Send data via UDP to connected address
+      private def execute_udp_send(process : Process) : Value
+        process.counter += 1
+
+        data_val = process.stack.pop
+        socket_id_val = process.stack.pop
+
+        unless socket_id_val.is_integer?
+          raise TypeMismatchException.new("UDP_SEND requires socket_id (integer)")
+        end
+
+        socket_id = socket_id_val.to_i64.to_u64
+
+        slice : Slice(UInt8) = if data_val.is_string?
+          data_val.to_s.to_slice
+        elsif data_val.is_binary?
+          data_val.to_binary
+        else
+          raise TypeMismatchException.new("UDP_SEND data must be String or binary")
+        end
+
+        bytes_written = @socket_registry.with_udp_socket!(socket_id) do |socket|
+          begin
+            socket.write(slice)
+            slice.size.to_i64
+          rescue ex
+            Log.warn { "Process <#{process.address}> UDP send failed: #{ex.message}" }
+            -1_i64
+          end
+        end
+
+        result = Value.new(bytes_written)
+        check_stack_capacity(process)
+        process.stack.push(result)
+        result
+      end
+
+      # Send data via UDP to specific address
+      private def execute_udp_send_to(process : Process) : Value
+        process.counter += 1
+
+        port_val = process.stack.pop
+        host_val = process.stack.pop
+        data_val = process.stack.pop
+        socket_id_val = process.stack.pop
+
+        unless socket_id_val.is_integer? && host_val.is_string? && port_val.is_integer?
+          raise TypeMismatchException.new("UDP_SEND_TO requires socket_id (int), data, host (string), port (int)")
+        end
+
+        socket_id = socket_id_val.to_i64.to_u64
+        host = host_val.to_s
+        port = port_val.to_i64.to_i32
+
+        slice : Slice(UInt8) = if data_val.is_string?
+          data_val.to_s.to_slice
+        elsif data_val.is_binary?
+          data_val.to_binary
+        else
+          raise TypeMismatchException.new("UDP_SEND_TO data must be String or binary")
+        end
+
+        bytes_written = @socket_registry.with_udp_socket!(socket_id) do |socket|
+          begin
+            address = ::Socket::IPAddress.new(host, port)
+            socket.send(slice, address)
+            slice.size.to_i64
+          rescue ex
+            Log.warn { "Process <#{process.address}> UDP send_to failed: #{ex.message}" }
+            -1_i64
+          end
+        end
+
+        result = Value.new(bytes_written)
+        check_stack_capacity(process)
+        process.stack.push(result)
+        result
+      end
+
+      # Receive data via UDP
+      private def execute_udp_receive(process : Process) : Value
+        process.counter += 1
+
+        max_bytes_value = process.stack.pop
+        socket_id_value = process.stack.pop
+
+        unless socket_id_value.is_integer? && max_bytes_value.is_integer?
+          raise TypeMismatchException.new("UDP_RECEIVE requires socket_id (int) and max_bytes (int)")
+        end
+
+        socket_id = socket_id_value.to_i64.to_u64
+        max_bytes = max_bytes_value.to_i64.to_i32
+
+        raise EmulationException.new("UDP_RECEIVE max_bytes must be > 0") if max_bytes <= 0
+
+        @socket_registry.with_udp_socket!(socket_id) do |socket|
+          buffer = Bytes.new(max_bytes)
+          bytes_read, addr = socket.receive(buffer)
+
+          # Push address info
+          check_stack_capacity(process)
+          addr_info = Value.new({
+            "host" => Value.new(addr.address),
+            "port" => Value.new(addr.port.to_i64),
+          })
+          process.stack.push(addr_info)
+
+          # Push received data (slice of actual bytes read)
+          check_stack_capacity(process)
+          received_data = buffer[0, bytes_read]
+          process.stack.push(Value.new(received_data))
+        end
+
+        Value.new(true)
+      end
+
+      # Close UDP socket
+      private def execute_udp_close(process : Process) : Value
+        process.counter += 1
+
+        socket_id_value = process.stack.pop
+
+        unless socket_id_value.is_integer?
+          raise TypeMismatchException.new("UDP_CLOSE requires socket_id (integer)")
+        end
+
+        socket_id = socket_id_value.to_i64.to_u64
+        closed = @socket_registry.close(socket_id)
+
+        result = Value.new(closed)
+        check_stack_capacity(process)
+        process.stack.push(result)
+        result
+      end
+
+      # Connect to a UNIX socket
+      private def execute_unix_connect(process : Process) : Value
+        process.counter += 1
+
+        path_value = process.stack.pop
+
+        unless path_value.is_string?
+          raise TypeMismatchException.new("UNIX_CONNECT requires path (string)")
+        end
+
+        path = path_value.to_s
+
+        begin
+          socket = UNIXSocket.new(path)
+          socket_id = @socket_registry.register(socket)
+
+          result = Value.new(socket_id.to_i64)
+          check_stack_capacity(process)
+          process.stack.push(result)
+          result
+        rescue ex
+          Log.warn { "UNIX_CONNECT failed: #{ex.message}" }
+          result = Value.new
+          check_stack_capacity(process)
+          process.stack.push(result)
+          result
+        end
+      end
+
+      # Create a UNIX server socket
+      private def execute_unix_listen(process : Process) : Value
+        process.counter += 1
+
+        path_value = process.stack.pop
+
+        unless path_value.is_string?
+          raise TypeMismatchException.new("UNIX_LISTEN requires path (string)")
+        end
+
+        path = path_value.to_s
+
+        begin
+          server = UNIXServer.new(path)
+          socket_id = @socket_registry.register(server)
+
+          result = Value.new(socket_id.to_i64)
+          check_stack_capacity(process)
+          process.stack.push(result)
+          result
+        rescue ex
+          Log.warn { "UNIX_LISTEN failed: #{ex.message}" }
+          result = Value.new
+          check_stack_capacity(process)
+          process.stack.push(result)
+          result
+        end
+      end
+
+      # Accept connection on UNIX server
+      private def execute_unix_accept(process : Process) : Value
+        process.counter += 1
+
+        socket_id_value = process.stack.pop
+
+        unless socket_id_value.is_integer?
+          raise TypeMismatchException.new("UNIX_ACCEPT requires socket_id (integer)")
+        end
+
+        socket_id = socket_id_value.to_i64.to_u64
+
+        client_id = @socket_registry.with_unix_server!(socket_id) do |server|
+          begin
+            client = server.accept
+            @socket_registry.register(client)
+          rescue ex
+            Log.warn { "Process <#{process.address}> UNIX accept failed: #{ex.message}" }
+            nil
+          end
+        end
+
+        result = client_id ? Value.new(client_id.to_i64) : Value.new
+        check_stack_capacity(process)
+        process.stack.push(result)
+        result
+      end
+
+      # Send data via UNIX socket
+      private def execute_unix_send(process : Process) : Value
+        process.counter += 1
+
+        data_val = process.stack.pop
+        socket_id_val = process.stack.pop
+
+        unless socket_id_val.is_integer?
+          raise TypeMismatchException.new("UNIX_SEND requires socket_id (integer)")
+        end
+
+        socket_id = socket_id_val.to_i64.to_u64
+
+        slice : Slice(UInt8) = if data_val.is_string?
+          data_val.to_s.to_slice
+        elsif data_val.is_binary?
+          data_val.to_binary
+        else
+          raise TypeMismatchException.new("UNIX_SEND data must be String or binary")
+        end
+
+        bytes_written = @socket_registry.with_unix_socket!(socket_id) do |socket|
+          begin
+            socket.write(slice)
+            slice.size.to_i64
+          rescue ex
+            Log.warn { "Process <#{process.address}> UNIX send failed: #{ex.message}" }
+            -1_i64
+          end
+        end
+
+        result = Value.new(bytes_written)
+        check_stack_capacity(process)
+        process.stack.push(result)
+        result
+      end
+
+      # Receive data via UNIX socket
+      private def execute_unix_receive(process : Process) : Value
+        process.counter += 1
+
+        max_bytes_value = process.stack.pop
+        socket_id_value = process.stack.pop
+
+        unless socket_id_value.is_integer? && max_bytes_value.is_integer?
+          raise TypeMismatchException.new("UNIX_RECEIVE requires socket_id (int) and max_bytes (int)")
+        end
+
+        socket_id = socket_id_value.to_i64.to_u64
+        max_bytes = max_bytes_value.to_i64.to_i32
+
+        raise EmulationException.new("UNIX_RECEIVE max_bytes must be > 0") if max_bytes <= 0
+
+        received_data = @socket_registry.with_unix_socket!(socket_id) do |socket|
+          buffer = Slice(UInt8).new(max_bytes)
+          bytes_read = socket.read(buffer)
+          buffer[0, bytes_read]
+        end
+
+        result = Value.new(received_data)
+        check_stack_capacity(process)
+        process.stack.push(result)
+        result
+      end
+
+      # Close UNIX socket
+      private def execute_unix_close(process : Process) : Value
+        process.counter += 1
+
+        socket_id_value = process.stack.pop
+
+        unless socket_id_value.is_integer?
+          raise TypeMismatchException.new("UNIX_CLOSE requires socket_id (integer)")
+        end
+
+        socket_id = socket_id_value.to_i64.to_u64
+        closed = @socket_registry.close(socket_id)
+
+        result = Value.new(closed)
+        check_stack_capacity(process)
+        process.stack.push(result)
+        result
+      end
+
+      # Generic socket info
+      private def execute_socket_info(process : Process) : Value
+        process.counter += 1
+
+        socket_id_value = process.stack.pop
+
+        unless socket_id_value.is_integer?
+          raise TypeMismatchException.new("SOCKET_INFO requires socket_id (integer)")
+        end
+
+        socket_id = socket_id_value.to_i64.to_u64
+
+        if type = @socket_registry.socket_type(socket_id)
+          info = Value.new({
+            "id"     => Value.new(socket_id.to_i64),
+            "type"   => Value.new(type.to_s),
+            "exists" => Value.new(true),
+          })
+          check_stack_capacity(process)
+          process.stack.push(info)
+          info
+        else
+          check_stack_capacity(process)
+          process.stack.push(Value.new)
+          Value.new
+        end
+      end
+
+      # Generic socket close
+      private def execute_socket_close(process : Process) : Value
+        process.counter += 1
+
+        socket_id_value = process.stack.pop
+
+        unless socket_id_value.is_integer?
+          raise TypeMismatchException.new("SOCKET_CLOSE requires socket_id (integer)")
         end
 
         socket_id = socket_id_value.to_i64.to_u64

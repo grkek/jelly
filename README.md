@@ -340,12 +340,45 @@ VM::Instruction.new(VM::Code::TRAP_EXIT)
 
 ### Networking
 
+**TCP Client:**
 | Instruction | Description |
 |-------------|-------------|
 | `TCP_CONNECT` | Connect to host:port |
 | `TCP_SEND` | Send data |
 | `TCP_RECEIVE` | Receive data |
 | `TCP_CLOSE` | Close connection |
+
+**TCP Server:**
+| Instruction | Description |
+|-------------|-------------|
+| `TCP_LISTEN` | Create server socket bound to host:port |
+| `TCP_ACCEPT` | Accept incoming connection |
+
+**UDP:**
+| Instruction | Description |
+|-------------|-------------|
+| `UDP_BIND` | Create and bind UDP socket to host:port |
+| `UDP_CONNECT` | Create UDP socket connected to remote host:port |
+| `UDP_SEND` | Send data over connected UDP socket |
+| `UDP_SEND_TO` | Send data to specific address |
+| `UDP_RECEIVE` | Receive data (returns address info and data) |
+| `UDP_CLOSE` | Close UDP socket |
+
+**UNIX Sockets:**
+| Instruction | Description |
+|-------------|-------------|
+| `UNIX_CONNECT` | Connect to UNIX domain socket path |
+| `UNIX_SEND` | Send data over UNIX socket |
+| `UNIX_RECEIVE` | Receive data from UNIX socket |
+| `UNIX_CLOSE` | Close UNIX socket |
+| `UNIX_LISTEN` | Create UNIX domain server socket |
+| `UNIX_ACCEPT` | Accept connection on UNIX server |
+
+**Generic Socket:**
+| Instruction | Description |
+|-------------|-------------|
+| `SOCKET_INFO` | Get socket type and info |
+| `SOCKET_CLOSE` | Close any socket type |
 
 ### I/O
 

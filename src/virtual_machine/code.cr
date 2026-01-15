@@ -297,19 +297,96 @@ module Jelly
       READ_LINE # Read line from stdin
       # Stack: [] → [string]
 
+      # TCP Client operations
+
       TCP_CONNECT # Open a TCP connection to host:port
       # Stack: [host, port] → [socket_id or null]
 
       TCP_SEND # Send data over a TCP socket
-      # Stack: [socket_id, data] → [sent_size]
-      #   data can be string or binary (Slice(UInt8))
+      # Stack: [socket_id, data] → [bytes_sent]
+      # Data can be String or binary (Slice(UInt8))
 
-      TCP_RECEIVE # Receive data from a TCP socket (up to maximum_size)
-      # Stack: [socket_id, maximum_size] → [received_binary]
-      #   Returns a binary value (Slice(UInt8)) containing raw received data
+      TCP_RECEIVE # Receive data from a TCP socket
+      # Stack: [socket_id, max_bytes] → [received_binary]
+      # Returns binary (Slice(UInt8)) containing raw received data
 
       TCP_CLOSE # Close a TCP socket
       # Stack: [socket_id] → [bool]
+
+      # TCP Server operations
+
+      TCP_LISTEN # Create a TCP server socket bound to host:port
+      # Stack: [host, port] → [socket_id or null]
+      # Creates a listening socket for accepting connections
+
+      TCP_ACCEPT # Accept incoming connection on TCP server
+      # Stack: [server_socket_id] → [client_socket_id or null]
+      # Blocks until a client connects, returns new socket for client
+
+      # UDP operations
+
+      UDP_BIND # Create and bind a UDP socket to host:port
+      # Stack: [host, port] → [socket_id or null]
+      # Creates a UDP socket bound to local address for receiving
+
+      UDP_CONNECT # Create a UDP socket connected to remote host:port
+      # Stack: [host, port] → [socket_id or null]
+      # Creates a "connected" UDP socket for send/receive without address
+
+      UDP_SEND # Send data over a connected UDP socket
+      # Stack: [socket_id, data] → [bytes_sent]
+      # Data can be String or binary (Slice(UInt8))
+      # Requires socket created with UDP_CONNECT
+
+      UDP_SEND_TO # Send data to specific address via UDP
+      # Stack: [socket_id, data, host, port] → [bytes_sent]
+      # Data can be String or binary (Slice(UInt8))
+      # Can be used with any UDP socket
+
+      UDP_RECEIVE # Receive data from UDP socket
+      # Stack: [socket_id, max_bytes] → [addr_info, received_binary]
+      # Returns sender address info map {host, port} and binary data
+
+      UDP_CLOSE # Close a UDP socket
+      # Stack: [socket_id] → [bool]
+
+      # UNIX Socket Client operations
+
+      UNIX_CONNECT # Connect to a UNIX domain socket
+      # Stack: [path] → [socket_id or null]
+      # Creates a client connection to UNIX socket at path
+
+      UNIX_SEND # Send data over a UNIX socket
+      # Stack: [socket_id, data] → [bytes_sent]
+      # Data can be String or binary (Slice(UInt8))
+
+      UNIX_RECEIVE # Receive data from a UNIX socket
+      # Stack: [socket_id, max_bytes] → [received_binary]
+      # Returns binary (Slice(UInt8)) containing raw received data
+
+      UNIX_CLOSE # Close a UNIX socket
+      # Stack: [socket_id] → [bool]
+
+      # UNIX Socket Server operations
+
+      UNIX_LISTEN # Create a UNIX domain server socket
+      # Stack: [path] → [socket_id or null]
+      # Creates a listening UNIX socket at path
+
+      UNIX_ACCEPT # Accept incoming connection on UNIX server
+      # Stack: [server_socket_id] → [client_socket_id or null]
+      # Blocks until a client connects, returns new socket for client
+
+      # Generic Socket operations
+
+      SOCKET_INFO # Get information about a socket
+      # Stack: [socket_id] → [info_map or null]
+      # Returns map with {id, type, exists} or null if not found
+      # Type is one of: TCP, TCPServer, UDP, UNIX, UNIXServer
+
+      SOCKET_CLOSE # Close any socket type (generic)
+      # Stack: [socket_id] → [bool]
+      # Works with any socket type (TCP, UDP, UNIX, servers)
 
       # Error handling
 
@@ -317,6 +394,7 @@ module Jelly
       # Stack: [error_value] → (process dies)
 
       # Process linking (bidirectional)
+
       LINK # Link two processes
       # Stack: [other_pid] → []
       # Links current process with other_pid
@@ -326,6 +404,7 @@ module Jelly
       # Removes link between current process and other_pid
 
       # Process monitoring (unidirectional)
+
       MONITOR # Monitor a process
       # Stack: [target_pid] → [monitor_ref]
       # Returns a reference that can be used to demonitor
@@ -335,6 +414,7 @@ module Jelly
       # Removes the monitor
 
       # Exit handling
+
       TRAP_EXIT # Enable/disable exit trapping
       # Stack: [bool] → []
       # When true, exit signals become messages
@@ -348,6 +428,7 @@ module Jelly
       # Cleanly terminates current process
 
       # Spawn variants
+
       SPAWN_LINK # Spawn and link atomically
       # Stack: [] → [new_pid]
       # Same as SPAWN but creates a link
@@ -357,6 +438,7 @@ module Jelly
       # Same as SPAWN but creates a monitor
 
       # Process info
+
       IS_ALIVE # Check if a process is alive
       # Stack: [pid] → [bool]
       # Returns true if process exists and is not DEAD
@@ -366,6 +448,7 @@ module Jelly
       # Returns map with process details
 
       # Supervisor operations
+
       START_CHILD # Start a child under supervisor
       # Stack: [supervisor_pid, child_spec] → [child_pid]
       # Starts a supervised child
@@ -383,6 +466,7 @@ module Jelly
       # Returns array of child info
 
       # Error handling
+
       TRY_CATCH # Begin try-catch block
       # Operand: catch_offset (Int64)
       # Marks start of try block
@@ -398,6 +482,7 @@ module Jelly
       # Must be in exception handler
 
       # Process flags
+
       SET_FLAG # Set a process flag
       # Stack: [flag_name, value] → [old_value]
       # Sets process-specific flag
