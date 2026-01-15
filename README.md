@@ -559,7 +559,7 @@ engine = VM::Engine.new
 
 # Create supervisor with restart strategy
 supervisor = engine.create_supervisor(
-  strategy: VM::RestartStrategy::OneForOne, # Only restart the failed child
+  strategy: VM::Supervisor::RestartStrategy::OneForOne,
   max_restarts: 5,
   restart_window: 10.seconds
 )
@@ -568,16 +568,21 @@ supervisor = engine.create_supervisor(
 worker_instructions = [
   VM::Instruction.new(VM::Code::PUSH_STRING, VM::Value.new("Worker starting...")),
   VM::Instruction.new(VM::Code::PRINT_LINE),
-  # Process work...
-  VM::Instruction.new(VM::Code::PUSH_STRING, VM::Value.new(:normal)),
+  VM::Instruction.new(VM::Code::PUSH_STRING, VM::Value.new("Worker stopping...")),
+  VM::Instruction.new(VM::Code::PRINT_LINE),
+  VM::Instruction.new(VM::Code::PUSH_SYMBOL, VM::Value.new(:normal)),
   VM::Instruction.new(VM::Code::EXIT_SELF),
 ]
+
+# Permanent - Always restart (even on normal exit) - use for long-running services
+# Transient - Only restart on abnormal exit - use for task workers
+# Temporary - Never restart - use for one-shot tasks
 
 # Define child specification
 worker_specification = VM::Supervisor::Child::Specification.new(
   id: "worker",
   instructions: worker_instructions,
-  restart: VM::Supervisor::RestartType::Permanent, # Always restart
+  restart: VM::Supervisor::RestartType::Transient,  # Only restart on abnormal exit
   max_restarts: 3,
   restart_window: 5.seconds
 )
@@ -627,17 +632,17 @@ engine = VM::Engine.new
 debugger = engine.attach_debugger do |process, instruction|
   puts "Break: Process <#{process.address}> at #{process.counter}"
   puts "Stack: #{process.stack.map(&.to_s)}"
-  
+
   print "debug (c/s/q)> "
   case gets.try(&.chomp)
-  when "s" then VM::DebugAction::Step
-  when "q" then VM::DebugAction::Abort
-  else          VM::DebugAction::Continue
+  when "s" then VM::Engine::Debugger::Action::Step
+  when "q" then VM::Engine::Debugger::Action::Abort
+  else          VM::Engine::Debugger::Action::Continue
   end
 end
 
-# Break at instruction 3
-debugger.add_breakpoint_at(3_u64)
+# Break at instruction 0
+debugger.add_breakpoint_at(0_u64)
 
 # Simple program
 instructions = [
@@ -675,11 +680,20 @@ alias VM = Jelly::VirtualMachine
 engine = VM::Engine.new
 
 # Add custom instruction handler with a block
-engine.on_instruction(VM::Code::DUP) do |process, instruction|
+engine.on_instruction(VM::Code::DUPLICATE) do |process, instruction|
   process.counter += 1
   process.stack.push(VM::Value.new("custom result"))
+
   VM::Value.new
 end
+
+process = engine.process_manager.create_process(instructions: [
+  VM::Instruction.new(VM::Code::PUSH_STRING, VM::Value.new("Hello, World!")),
+  VM::Instruction.new(VM::Code::DUPLICATE),
+  VM::Instruction.new(VM::Code::PRINT_LINE)
+])
+
+engine.processes.push(process)
 
 engine.run
 ```

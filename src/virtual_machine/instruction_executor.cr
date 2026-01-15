@@ -14,6 +14,10 @@ module Jelly
 
         Log.debug { "Process <#{process.address}>: Executing #{instruction.code}" }
 
+        if handler = @engine.custom_handlers[instruction.code]?
+          return handler.call(process, instruction)
+        end
+
         begin
           case instruction.code
           # Stack manipulation
@@ -135,11 +139,7 @@ module Jelly
           when Code::SET_FLAG      then execute_set_flag(process)
           when Code::GET_FLAG      then execute_get_flag(process)
           else
-            if handler = @engine.custom_handlers[instruction.code]?
-              handler.call(process, instruction)
-            else
-              raise InvalidInstructionException.new("Unknown instruction: #{instruction.code}")
-            end
+            raise InvalidInstructionException.new("Unknown instruction: #{instruction.code}")
           end
         rescue ex : EmulationException | Exception
           if handle_exception(process, ex)
