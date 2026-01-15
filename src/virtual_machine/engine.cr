@@ -91,8 +91,8 @@ module Jelly
           add_breakpoint { |p| p.counter == address }
         end
 
-        def remove_breakpoint(breakpoint : Debugger::Breakpoint) : Bool
-          @breakpoints.delete(breakpoint) != nil
+        def remove_breakpoint(id : UInt64) : Bool
+          @breakpoints.reject! { |breakpoint| breakpoint.id == id }
         end
 
         def clear_breakpoints
