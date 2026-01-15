@@ -152,8 +152,8 @@ module Jelly
           )
 
           # Copy subroutines and globals
-          specification.subroutines.each { |name, sub| process.subroutines[name] = sub }
-          specification.globals.each { |name, val| process.globals[name] = val.clone }
+          specification.subroutines.each { |name, subroutine| process.subroutines[name] = subroutine }
+          specification.globals.each { |name, value| process.globals[name] = value.clone }
 
           # Link supervisor to child
           @engine.process_links.link(@address, process.address)

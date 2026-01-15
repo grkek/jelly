@@ -4,7 +4,7 @@ alias VM = Jelly::VirtualMachine
 
 engine = VM::Engine.new
 
-server_instructions = [
+instructions = [
   # Create TCP server on localhost:8080
   VM::Instruction.new(VM::Code::PUSH_STRING, VM::Value.new("127.0.0.1")),
   VM::Instruction.new(VM::Code::PUSH_INTEGER, VM::Value.new(8080_i64)),
@@ -71,21 +71,21 @@ server_instructions = [
   VM::Instruction.new(VM::Code::EXIT_SELF),
 ]
 
-# Attach debugger with interactive handler
+# Attach debugger (same as before)
 debugger = engine.attach_debugger do |process, instruction|
-  puts "═" * 50
+  puts "═" * 80
   puts "Break at Process <#{process.address}>, counter: #{process.counter}"
+  puts "Call stack depth: #{process.call_stack.size}"
   puts "Instruction: #{instruction.try(&.code) || "none"}"
-  puts "Stack: #{process.stack.map(&.to_s)}"
+  puts "Stack (top 10): #{process.stack.reverse.first(10).reverse.map(&.to_s)}"
   puts "Locals: #{process.locals.map(&.to_s)}"
-  puts "═" * 50
+  puts "═" * 80
 
-  print "debug(s/n/c/q)> "
-  input = gets.try(&.chomp)
+  print "debug(s=step/c=continue/q=quit)> "
+  input = gets.try(&.chomp) || "s"
 
   case input
   when "s", "step"     then VM::Engine::Debugger::Action::Step
-  when "n", "next"     then VM::Engine::Debugger::Action::StepOver
   when "c", "continue" then VM::Engine::Debugger::Action::Continue
   when "q", "quit"     then VM::Engine::Debugger::Action::Abort
   else                      VM::Engine::Debugger::Action::Step
@@ -94,7 +94,7 @@ end
 
 debugger.add_breakpoint_at(0_u64)
 
-process = engine.process_manager.create_process(instructions: server_instructions)
+process = engine.process_manager.create_process(instructions: instructions)
 engine.processes.push(process)
 
 engine.configuration.iteration_limit = 1000000
