@@ -400,7 +400,7 @@ module Jelly
         child
       end
 
-      def spawn_monitor(parent : Process, instructions : Array(Instruction)) : Tuple(Process, MonitorRef)
+      def spawn_monitor(parent : Process, instructions : Array(Instruction)) : Tuple(Process, Process::MonitorReference)
         child = process_manager.create_process(instructions: instructions)
         child.parent = parent.address if child.responds_to?(:parent=)
         @processes << child
