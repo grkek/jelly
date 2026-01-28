@@ -4,7 +4,6 @@
 
 [![Crystal](https://img.shields.io/badge/crystal-1.15+-blue?logo=crystal)](https://crystal-lang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![GitHub stars](https://img.shields.io/github/stars/konjac-lang/abstract_machine?style=social)](https://github.com/konjac-lang/abstract_machine)
 [![Build Status](https://github.com/konjac-lang/abstract_machine/actions/workflows/ci.yml/badge.svg)](https://github.com/konjac-lang/abstract_machine/actions)
 
 This project combines a clean **stack-based bytecode interpreter** with **actor-model concurrency**, lightweight processes, message passing, supervision trees, and built-in fault tolerance — all implemented in pure Crystal.
